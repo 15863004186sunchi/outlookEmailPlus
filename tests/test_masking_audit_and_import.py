@@ -188,7 +188,9 @@ class MaskingAuditAndImportTests(unittest.TestCase):
         email_addr = f"tmp_{unique}@example.com"
 
         # Mock generate_temp_email 返回元组 (email_addr, None)
-        with patch.object(self.module.impl, "generate_temp_email", return_value=(email_addr, None)):
+        # 注意：控制器现在直接使用 gptmail service，需要 mock outlook_web.services.gptmail
+        from outlook_web.services import gptmail as gptmail_service
+        with patch.object(gptmail_service, "generate_temp_email", return_value=(email_addr, None)):
             resp = client.post("/api/temp-emails/generate", json={})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json().get("success"), True)
@@ -200,7 +202,7 @@ class MaskingAuditAndImportTests(unittest.TestCase):
         create_logs = create_data.get("logs") or []
         self.assertTrue([r for r in create_logs if r.get("resource_id") == email_addr])
 
-        with patch.object(self.module.impl, "clear_temp_emails_from_api", return_value=True):
+        with patch.object(gptmail_service, "clear_temp_emails_from_api", return_value=True):
             conn = self.module.create_sqlite_connection()
             try:
                 conn.execute(

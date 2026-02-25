@@ -173,7 +173,9 @@ class CoreFeatureTests(unittest.TestCase):
 
         email_addr = f"temp_{uuid.uuid4().hex}@example.com"
         # Mock generate_temp_email 返回元组 (email_addr, None)
-        with patch.object(self.module.impl, "generate_temp_email", return_value=(email_addr, None)):
+        # 注意：控制器现在直接使用 gptmail service，需要 mock outlook_web.services.gptmail
+        from outlook_web.services import gptmail as gptmail_service
+        with patch.object(gptmail_service, "generate_temp_email", return_value=(email_addr, None)):
             created = client.post("/api/temp-emails/generate", json={"prefix": "x", "domain": "y"})
         self.assertEqual(created.status_code, 200)
         created_data = created.get_json()
