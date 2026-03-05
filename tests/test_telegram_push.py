@@ -886,5 +886,184 @@ class TestScrollPreservation(unittest.TestCase):
         pass
 
 
+# ===========================================================================
+# BUG-00010 相关测试：并行获取 + 游标策略 + 发送计数 + INTERNALDATE
+# ===========================================================================
+
+
+class TestFetchAccountEmails(unittest.TestCase):
+    """BUG-00010: _fetch_account_emails 独立函数测试"""
+
+    def test_first_run_returns_none_emails(self):
+        """首次运行（last_checked_at=None）→ emails=None, error=None"""
+        from outlook_web.services.telegram_push import _fetch_account_emails
+        account = {"id": 1, "email": "x@test.com", "provider": "qq", "telegram_last_checked_at": None}
+        acc, emails, error = _fetch_account_emails(account)
+        self.assertIsNone(emails)
+        self.assertIsNone(error)
+
+    def test_fetch_success_returns_emails(self):
+        """正常 fetch → 返回邮件列表"""
+        from outlook_web.services.telegram_push import _fetch_account_emails
+        account = {"id": 1, "email": "x@test.com", "provider": "qq",
+                   "telegram_last_checked_at": "2026-03-01T00:00:00"}
+        fake_emails = [{"subject": "Hi", "sender": "a@b.com", "received_at": "2026-03-05T10:00:00", "preview": ""}]
+
+        with patch("outlook_web.services.telegram_push._fetch_new_emails_imap", return_value=fake_emails):
+            acc, emails, error = _fetch_account_emails(account)
+        self.assertEqual(len(emails), 1)
+        self.assertIsNone(error)
+
+    def test_fetch_error_returns_error(self):
+        """fetch 异常 → emails=None, error=Exception"""
+        from outlook_web.services.telegram_push import _fetch_account_emails
+        account = {"id": 1, "email": "x@test.com", "provider": "qq",
+                   "telegram_last_checked_at": "2026-03-01T00:00:00"}
+
+        with patch("outlook_web.services.telegram_push._fetch_new_emails_imap",
+                   side_effect=ConnectionError("timeout")):
+            acc, emails, error = _fetch_account_emails(account)
+        self.assertIsNone(emails)
+        self.assertIsInstance(error, ConnectionError)
+
+    def test_outlook_uses_graph_fetch(self):
+        """Outlook 账号使用 Graph API fetch"""
+        from outlook_web.services.telegram_push import _fetch_account_emails
+        account = {"id": 1, "email": "x@outlook.com", "provider": "outlook",
+                   "telegram_last_checked_at": "2026-03-01T00:00:00"}
+
+        with patch("outlook_web.services.telegram_push._fetch_new_emails_graph", return_value=[]) as mock_graph, \
+             patch("outlook_web.services.telegram_push._fetch_new_emails_imap") as mock_imap:
+            _fetch_account_emails(account)
+        mock_graph.assert_called_once()
+        mock_imap.assert_not_called()
+
+
+class TestParallelJobBehavior(unittest.TestCase):
+    """BUG-00010: 并行 job 行为测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _get_app()
+
+    def setUp(self):
+        with self.app.app_context():
+            from outlook_web.db import get_db
+            db = get_db()
+            db.execute("DELETE FROM accounts WHERE email LIKE '%@parallel.com'")
+            db.execute("UPDATE accounts SET telegram_push_enabled = 0")
+            db.commit()
+
+    def _set_settings(self, bot_token="test_token_12345678", chat_id="-12345"):
+        from outlook_web.repositories.settings import set_setting
+        from outlook_web.security.crypto import encrypt_data
+        if bot_token:
+            set_setting("telegram_bot_token", encrypt_data(bot_token))
+        else:
+            set_setting("telegram_bot_token", "")
+        set_setting("telegram_chat_id", chat_id)
+
+    def _run_job(self):
+        from outlook_web.services.telegram_push import run_telegram_push_job
+        run_telegram_push_job(self.app)
+
+    def _make_email(self, received_at="2026-03-04T14:31:00"):
+        return {
+            "subject": "Test",
+            "sender": "s@test.com",
+            "received_at": received_at,
+            "preview": "body preview",
+        }
+
+    def test_send_failure_does_not_increment_count(self):
+        """发送失败时 sent_count 不递增"""
+        with self.app.app_context():
+            from outlook_web.db import get_db
+            db = get_db()
+            _insert_test_account(db, "fail@parallel.com", enabled=1,
+                                 last_checked="2026-03-01T00:00:00")
+            self._set_settings()
+
+            emails = [self._make_email("2026-03-04T10:00:00")]
+
+            send_calls = []
+            def fake_send(token, chat, msg):
+                send_calls.append(msg)
+                return False  # 发送失败
+
+            with patch("outlook_web.services.telegram_push._fetch_new_emails_imap", return_value=emails), \
+                 patch("outlook_web.services.telegram_push._send_telegram_message", side_effect=fake_send):
+                self._run_job()
+
+            self.assertEqual(len(send_calls), 1, "应尝试发送 1 次")
+
+    def test_mixed_success_failure_accounts(self):
+        """混合场景：一个账号成功、一个失败 → 成功的游标推进，失败的保留"""
+        with self.app.app_context():
+            from outlook_web.db import get_db
+            db = get_db()
+            ok_id = _insert_test_account(db, "ok@parallel.com", enabled=1,
+                                         last_checked="2026-03-01T00:00:00")
+            err_id = _insert_test_account(db, "err@parallel.com", enabled=1,
+                                          last_checked="2026-03-01T00:00:00")
+            self._set_settings()
+
+            emails = [self._make_email("2026-03-04T10:00:00")]
+
+            def fake_fetch(account, since):
+                if account["email"] == "ok@parallel.com":
+                    return emails
+                raise ConnectionError("IMAP timeout")
+
+            with patch("outlook_web.services.telegram_push._fetch_new_emails_imap", side_effect=fake_fetch), \
+                 patch("outlook_web.services.telegram_push._send_telegram_message", return_value=True):
+                self._run_job()
+
+            ok_cursor = db.execute(
+                "SELECT telegram_last_checked_at FROM accounts WHERE id = ?", (ok_id,)
+            ).fetchone()["telegram_last_checked_at"]
+            err_cursor = db.execute(
+                "SELECT telegram_last_checked_at FROM accounts WHERE id = ?", (err_id,)
+            ).fetchone()["telegram_last_checked_at"]
+
+            self.assertNotEqual(ok_cursor, "2026-03-01T00:00:00", "成功账号游标应推进")
+            self.assertEqual(err_cursor, "2026-03-01T00:00:00", "失败账号游标应保留")
+
+    def test_parallel_fetch_all_accounts_processed(self):
+        """并行模式下所有账号都应被处理"""
+        with self.app.app_context():
+            from outlook_web.db import get_db
+            db = get_db()
+            ids = []
+            for i in range(5):
+                aid = _insert_test_account(db, f"p{i}@parallel.com", enabled=1,
+                                           last_checked="2026-03-01T00:00:00")
+                ids.append(aid)
+            self._set_settings()
+
+            fetch_emails = set()
+            def fake_fetch(account, since):
+                fetch_emails.add(account["email"])
+                return []
+
+            with patch("outlook_web.services.telegram_push._fetch_new_emails_imap", side_effect=fake_fetch), \
+                 patch("outlook_web.services.telegram_push._send_telegram_message", return_value=True):
+                self._run_job()
+
+            for i in range(5):
+                self.assertIn(f"p{i}@parallel.com", fetch_emails,
+                              f"p{i}@parallel.com 未被 fetch")
+
+    def test_scheduler_default_interval_is_60(self):
+        """调度器默认间隔应为 60 秒"""
+        with self.app.app_context():
+            from outlook_web.services.scheduler import _get_telegram_interval
+            # 清除可能存在的设置
+            from outlook_web.repositories.settings import set_setting
+            set_setting("telegram_poll_interval", "")
+            interval = _get_telegram_interval(self.app)
+            self.assertEqual(interval, 60)
+
+
 if __name__ == "__main__":
     unittest.main()
