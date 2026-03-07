@@ -1,4 +1,4 @@
-name: Build and Push Docker Image (Docker Hub)
+name: Build and Push Docker Image
 
 on:
   push:
@@ -14,44 +14,47 @@ on:
   workflow_dispatch:
 
 env:
-  # 统一方案一：发布到我们可控的 Docker Hub 账号命名空间
+  # Docker Hub（可选）：需要配置仓库 Secrets：DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
   DOCKERHUB_IMAGE: guangshanshui/outlook-email-plus
 
 jobs:
-  check-secrets:
-    runs-on: ubuntu-latest
-    outputs:
-      has_secrets: ${{ steps.check.outputs.has_secrets }}
-    steps:
-      - id: check
-        env:
-          HAS_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -n "$HAS_USERNAME" ] && [ -n "$HAS_TOKEN" ]; then
-            echo "has_secrets=true" >> $GITHUB_OUTPUT
-            echo "✅ Docker Hub credentials found"
-          else
-            echo "has_secrets=false" >> $GITHUB_OUTPUT
-            echo "❌ Docker Hub credentials not configured"
-            echo "Please set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN in repository secrets"
-          fi
-
   build-and-push:
-    needs: check-secrets
-    if: needs.check-secrets.outputs.has_secrets == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Compute image names
+        id: names
+        shell: bash
+        run: |
+          # GHCR 要求小写
+          echo "ghcr_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/outlook-email-plus" >> "$GITHUB_OUTPUT"
+
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "dockerhub_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "images=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/outlook-email-plus,${{ env.DOCKERHUB_IMAGE }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dockerhub_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "images=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/outlook-email-plus" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (optional)
+        if: steps.names.outputs.dockerhub_enabled == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -61,13 +64,14 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKERHUB_IMAGE }}
+          images: ${{ steps.names.outputs.images }}
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -79,4 +83,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Image digest
-        run: echo ${{ steps.meta.outputs.digest }}
+        run: echo ${{ steps.build.outputs.digest }}
