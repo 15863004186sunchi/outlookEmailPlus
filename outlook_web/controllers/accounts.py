@@ -1200,6 +1200,49 @@ def api_update_account(account_id: int) -> Any:
     return build_error_response("ACCOUNT_UPDATE_FAILED", "更新失败", message_en="Failed to update account", status=500)
 
 
+@login_required
+def api_update_account_remark(account_id: int) -> Any:
+    """仅更新账号备注，不要求重复提交其他字段。"""
+    data = request.get_json(silent=True) or {}
+    remark = sanitize_input(data.get("remark", ""), max_length=200)
+
+    existing_account = accounts_repo.get_account_by_id(account_id)
+    if not existing_account:
+        return build_error_response("ACCOUNT_NOT_FOUND", "账号不存在", message_en="Account not found", status=404)
+
+    email_addr = (existing_account.get("email") or "").strip()
+    password = None
+    client_id = existing_account.get("client_id")
+    refresh_token = None
+    group_id = int(existing_account.get("group_id") or 1)
+    status = existing_account.get("status") or "active"
+
+    if not accounts_repo.update_account(
+        account_id,
+        email_addr,
+        password,
+        client_id,
+        refresh_token,
+        group_id,
+        remark,
+        status,
+    ):
+        return build_error_response(
+            "ACCOUNT_UPDATE_FAILED",
+            "更新失败",
+            message_en="Failed to update account",
+            status=500,
+        )
+
+    log_audit(
+        "update",
+        "account",
+        str(account_id),
+        json.dumps({"remark": remark}, ensure_ascii=False),
+    )
+    return jsonify({"success": True, "message": "备注更新成功", "message_en": "Remark updated successfully"})
+
+
 def _api_update_account_status(account_id: int, status: str) -> Any:
     """只更新账号状态"""
     normalized_status = str(status or "").strip().lower()
