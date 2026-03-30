@@ -1,469 +1,471 @@
 // 全局状态
-        let csrfToken = null;
-        let csrfTokenRefreshPromise = null;
-        let currentAccount = null;
-        let currentGroupId = null;
-        let currentEmails = [];
-        let currentMethod = 'graph';
-        let currentFolder = 'inbox';
-        let isListVisible = true;
-        let groups = [];
-        let accountsCache = {};
-        let editingGroupId = null;
-        let selectedColor = '#B85C38';
-        let isTempEmailGroup = false;
-        let tempEmailGroupId = null;
-        let isLoadingMore = false;
-        let hasMoreEmails = true;
-        let currentSkip = 0;
-        let lastRefreshTime = null;
-        let mailboxViewMode = localStorage.getItem('ol_mailbox_view_mode') || 'standard';
+let csrfToken = null;
+let csrfTokenRefreshPromise = null;
+let currentAccount = null;
+let currentGroupId = null;
+let currentEmails = [];
+let currentMethod = 'graph';
+let currentFolder = 'inbox';
+let isListVisible = true;
+let groups = [];
+let accountsCache = {};
+let editingGroupId = null;
+let selectedColor = '#B85C38';
+let isTempEmailGroup = false;
+let tempEmailGroupId = null;
+let isLoadingMore = false;
+let hasMoreEmails = true;
+let currentSkip = 0;
+let lastRefreshTime = null;
+let mailboxViewMode = localStorage.getItem('ol_mailbox_view_mode') || 'standard';
 
-        // 缓存与信任模式
-        let emailListCache = {};
-        let currentEmailDetail = null;
-        let isTrustedMode = false;
+// 缓存与信任模式
+let emailListCache = {};
+let currentEmailDetail = null;
+let isTrustedMode = false;
 
-        // 轮询相关
-        let pollingTimer = null;
-        let pollingCount = 0;
-        let maxPollingCount = 5;
-        let pollingInterval = 10;
-        let autoPollingEnabled = false;
-        let isPolling = false;
-        let knownEmailIds = new Set();
+// 轮询相关
+let pollingTimer = null;
+let pollingCount = 0;
+let maxPollingCount = 5;
+let pollingInterval = 10;
+let autoPollingEnabled = false;
+let isPolling = false;
+let knownEmailIds = new Set();
 
-        // 导航状态
-        let currentPage = 'dashboard';
-        let accountPanelDensitySyncHandle = null;
+// 导航状态
+let currentPage = 'dashboard';
+let accountPanelDensitySyncHandle = null;
 
-        // ==================== 布局状态管理 (ui_layout_v2) ====================
-        // 布局状态缓存
-        let uiLayoutV2 = null;
-        let layoutSaveDebounceTimer = null;
-        const LAYOUT_SAVE_DEBOUNCE_MS = 2000;
+// ==================== 布局状态管理 (ui_layout_v2) ====================
+// 布局状态缓存
+let uiLayoutV2 = null;
+let layoutSaveDebounceTimer = null;
+const LAYOUT_SAVE_DEBOUNCE_MS = 2000;
 
-        // 默认布局状态
-        function getDefaultLayoutV2() {
-            return {
-                version: 2,
-                sidebar: { collapsed: false },
-                mailbox: { groupPanelWidth: 220, accountPanelWidth: 280 },
-                tempEmails: { listPanelWidth: 300 }
-            };
-        }
+// 默认布局状态
+function getDefaultLayoutV2() {
+    return {
+        version: 2,
+        sidebar: { collapsed: false },
+        mailbox: { groupPanelWidth: 220, accountPanelWidth: 280 },
+        tempEmails: { listPanelWidth: 300 }
+    };
+}
 
-        // 从后端读取布局状态
-        async function loadLayoutFromServer() {
-            try {
-                const response = await fetch('/api/settings');
-                const data = await response.json();
-                if (data.success && data.settings && data.settings.ui_layout_v2) {
-                    const layout = data.settings.ui_layout_v2;
-                    if (layout.version === 2) {
-                        uiLayoutV2 = layout;
-                        return layout;
-                    }
-                }
-            } catch (error) {
-                console.warn('加载布局状态失败:', error);
-            }
-            return null;
-        }
-
-        // 迁移旧 localStorage key 到 ui_layout_v2
-        function migrateOldLayoutKeys() {
-            const migrated = { version: 2, sidebar: {}, mailbox: {}, tempEmails: {} };
-            let needsMigration = false;
-
-            try {
-                // 迁移侧边栏折叠状态
-                const oldSidebarCollapsed = localStorage.getItem('ol_sidebar_collapsed');
-                if (oldSidebarCollapsed !== null) {
-                    migrated.sidebar.collapsed = oldSidebarCollapsed === 'true';
-                    needsMigration = true;
-                } else {
-                    migrated.sidebar.collapsed = false;
-                }
-
-                // 迁移列宽
-                const oldColumnWidths = localStorage.getItem('ol_column_widths');
-                if (oldColumnWidths) {
-                    try {
-                        const widths = JSON.parse(oldColumnWidths);
-                        // groupPanel / accountPanel 的宽度迁移
-                        if (widths.groupPanel) {
-                            const w = parseInt(widths.groupPanel, 10);
-                            if (!isNaN(w) && w > 0) {
-                                migrated.mailbox.groupPanelWidth = w;
-                                needsMigration = true;
-                            }
-                        }
-                        if (widths.accountPanel) {
-                            const w = parseInt(widths.accountPanel, 10);
-                            if (!isNaN(w) && w > 0) {
-                                migrated.mailbox.accountPanelWidth = w;
-                                needsMigration = true;
-                            }
-                        }
-                        // temp-emails 列宽迁移（如果有）
-                        if (widths.tempEmailPanel) {
-                            const w = parseInt(widths.tempEmailPanel, 10);
-                            if (!isNaN(w) && w > 0) {
-                                migrated.tempEmails.listPanelWidth = w;
-                                needsMigration = true;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('解析旧列宽数据失败:', e);
-                    }
-                }
-
-                // 设置默认值
-                if (!migrated.mailbox.groupPanelWidth) migrated.mailbox.groupPanelWidth = 220;
-                if (!migrated.mailbox.accountPanelWidth) migrated.mailbox.accountPanelWidth = 280;
-                if (!migrated.tempEmails.listPanelWidth) migrated.tempEmails.listPanelWidth = 300;
-
-            } catch (e) {
-                console.warn('迁移布局状态失败:', e);
-                return null;
-            }
-
-            return needsMigration ? migrated : null;
-        }
-
-        // 清理旧 localStorage key（可选，迁移成功后调用）
-        function cleanupOldLayoutKeys() {
-            try {
-                localStorage.removeItem('ol_sidebar_collapsed');
-                localStorage.removeItem('ol_column_widths');
-            } catch (e) {}
-        }
-
-        // 保存布局状态到后端（带 debounce）
-        function saveLayoutToServer() {
-            if (!uiLayoutV2) return;
-
-            if (layoutSaveDebounceTimer) {
-                clearTimeout(layoutSaveDebounceTimer);
-            }
-
-            layoutSaveDebounceTimer = setTimeout(async () => {
-                try {
-                    await fetch('/api/settings', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ui_layout_v2: uiLayoutV2 })
-                    });
-                } catch (error) {
-                    console.warn('保存布局状态失败:', error);
-                }
-            }, LAYOUT_SAVE_DEBOUNCE_MS);
-        }
-
-        // 初始化布局状态
-        async function initLayoutState() {
-            // 1. 先尝试从后端加载
-            let layout = await loadLayoutFromServer();
-
-            // 2. 如果后端没有有效布局，尝试迁移旧 key
-            if (!layout) {
-                const migrated = migrateOldLayoutKeys();
-                if (migrated) {
-                    uiLayoutV2 = migrated;
-                    // 保存迁移结果到后端
-                    try {
-                        await fetch('/api/settings', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ui_layout_v2: migrated })
-                        });
-                        // 迁移成功后清理旧 key
-                        cleanupOldLayoutKeys();
-                        console.log('布局状态迁移完成');
-                    } catch (e) {
-                        console.warn('保存迁移布局失败:', e);
-                    }
-                } else {
-                    // 使用默认布局
-                    uiLayoutV2 = getDefaultLayoutV2();
-                }
-            } else {
+// 从后端读取布局状态
+async function loadLayoutFromServer() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        if (data.success && data.settings && data.settings.ui_layout_v2) {
+            const layout = data.settings.ui_layout_v2;
+            if (layout.version === 2) {
                 uiLayoutV2 = layout;
+                return layout;
             }
+        }
+    } catch (error) {
+        console.warn('加载布局状态失败:', error);
+    }
+    return null;
+}
 
-            // 3. 应用布局状态
-            applyLayoutState();
+// 迁移旧 localStorage key 到 ui_layout_v2
+function migrateOldLayoutKeys() {
+    const migrated = { version: 2, sidebar: {}, mailbox: {}, tempEmails: {} };
+    let needsMigration = false;
+
+    try {
+        // 迁移侧边栏折叠状态
+        const oldSidebarCollapsed = localStorage.getItem('ol_sidebar_collapsed');
+        if (oldSidebarCollapsed !== null) {
+            migrated.sidebar.collapsed = oldSidebarCollapsed === 'true';
+            needsMigration = true;
+        } else {
+            migrated.sidebar.collapsed = false;
         }
 
-        // 应用布局状态到 DOM
-        function applyLayoutState() {
-            if (!uiLayoutV2) return;
-
-            // 应用侧边栏折叠状态
-            const app = document.getElementById('app');
-            if (app && uiLayoutV2.sidebar && uiLayoutV2.sidebar.collapsed) {
-                app.classList.add('sidebar-collapsed');
-            }
-
-            // 应用 mailbox 列宽
-            if (uiLayoutV2.mailbox) {
-                const groupPanel = document.getElementById('groupPanel');
-                const accountPanel = document.getElementById('accountPanel');
-                if (groupPanel && uiLayoutV2.mailbox.groupPanelWidth) {
-                    groupPanel.style.width = uiLayoutV2.mailbox.groupPanelWidth + 'px';
+        // 迁移列宽
+        const oldColumnWidths = localStorage.getItem('ol_column_widths');
+        if (oldColumnWidths) {
+            try {
+                const widths = JSON.parse(oldColumnWidths);
+                // groupPanel / accountPanel 的宽度迁移
+                if (widths.groupPanel) {
+                    const w = parseInt(widths.groupPanel, 10);
+                    if (!isNaN(w) && w > 0) {
+                        migrated.mailbox.groupPanelWidth = w;
+                        needsMigration = true;
+                    }
                 }
-                if (accountPanel && uiLayoutV2.mailbox.accountPanelWidth) {
-                    accountPanel.style.width = uiLayoutV2.mailbox.accountPanelWidth + 'px';
+                if (widths.accountPanel) {
+                    const w = parseInt(widths.accountPanel, 10);
+                    if (!isNaN(w) && w > 0) {
+                        migrated.mailbox.accountPanelWidth = w;
+                        needsMigration = true;
+                    }
                 }
-            }
-
-            // 应用 temp-emails 列宽
-            if (uiLayoutV2.tempEmails) {
-                const tempEmailPanel = document.getElementById('tempEmailPanel');
-                if (tempEmailPanel && uiLayoutV2.tempEmails.listPanelWidth) {
-                    tempEmailPanel.style.width = uiLayoutV2.tempEmails.listPanelWidth + 'px';
+                // temp-emails 列宽迁移（如果有）
+                if (widths.tempEmailPanel) {
+                    const w = parseInt(widths.tempEmailPanel, 10);
+                    if (!isNaN(w) && w > 0) {
+                        migrated.tempEmails.listPanelWidth = w;
+                        needsMigration = true;
+                    }
                 }
+            } catch (e) {
+                console.warn('解析旧列宽数据失败:', e);
             }
         }
 
-        // 更新布局状态中的侧边栏折叠
-        function updateLayoutSidebarCollapsed(collapsed) {
-            if (!uiLayoutV2) uiLayoutV2 = getDefaultLayoutV2();
-            uiLayoutV2.sidebar.collapsed = collapsed;
-            saveLayoutToServer();
+        // 设置默认值
+        if (!migrated.mailbox.groupPanelWidth) migrated.mailbox.groupPanelWidth = 220;
+        if (!migrated.mailbox.accountPanelWidth) migrated.mailbox.accountPanelWidth = 280;
+        if (!migrated.tempEmails.listPanelWidth) migrated.tempEmails.listPanelWidth = 300;
+
+    } catch (e) {
+        console.warn('迁移布局状态失败:', e);
+        return null;
+    }
+
+    return needsMigration ? migrated : null;
+}
+
+// 清理旧 localStorage key（可选，迁移成功后调用）
+function cleanupOldLayoutKeys() {
+    try {
+        localStorage.removeItem('ol_sidebar_collapsed');
+        localStorage.removeItem('ol_column_widths');
+    } catch (e) { }
+}
+
+// 保存布局状态到后端（带 debounce）
+function saveLayoutToServer() {
+    if (!uiLayoutV2) return;
+
+    if (layoutSaveDebounceTimer) {
+        clearTimeout(layoutSaveDebounceTimer);
+    }
+
+    layoutSaveDebounceTimer = setTimeout(async () => {
+        try {
+            await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ui_layout_v2: uiLayoutV2 })
+            });
+        } catch (error) {
+            console.warn('保存布局状态失败:', error);
         }
+    }, LAYOUT_SAVE_DEBOUNCE_MS);
+}
 
-        // 更新布局状态中的列宽
-        function updateLayoutColumnWidths() {
-            if (!uiLayoutV2) uiLayoutV2 = getDefaultLayoutV2();
+// 初始化布局状态
+async function initLayoutState() {
+    // 1. 先尝试从后端加载
+    let layout = await loadLayoutFromServer();
 
-            // 读取 mailbox 列宽
-            const groupPanel = document.getElementById('groupPanel');
-            const accountPanel = document.getElementById('accountPanel');
-            if (groupPanel && groupPanel.style.width) {
-                const w = parseInt(groupPanel.style.width, 10);
-                if (!isNaN(w) && w > 0) {
-                    uiLayoutV2.mailbox.groupPanelWidth = w;
-                }
+    // 2. 如果后端没有有效布局，尝试迁移旧 key
+    if (!layout) {
+        const migrated = migrateOldLayoutKeys();
+        if (migrated) {
+            uiLayoutV2 = migrated;
+            // 保存迁移结果到后端
+            try {
+                await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ui_layout_v2: migrated })
+                });
+                // 迁移成功后清理旧 key
+                cleanupOldLayoutKeys();
+                console.log('布局状态迁移完成');
+            } catch (e) {
+                console.warn('保存迁移布局失败:', e);
             }
-            if (accountPanel && accountPanel.style.width) {
-                const w = parseInt(accountPanel.style.width, 10);
-                if (!isNaN(w) && w > 0) {
-                    uiLayoutV2.mailbox.accountPanelWidth = w;
-                }
-            }
-
-            // 读取 temp-emails 列宽
-            const tempEmailPanel = document.getElementById('tempEmailPanel');
-            if (tempEmailPanel && tempEmailPanel.style.width) {
-                const w = parseInt(tempEmailPanel.style.width, 10);
-                if (!isNaN(w) && w > 0) {
-                    uiLayoutV2.tempEmails.listPanelWidth = w;
-                }
-            }
-
-            saveLayoutToServer();
+        } else {
+            // 使用默认布局
+            uiLayoutV2 = getDefaultLayoutV2();
         }
+    } else {
+        uiLayoutV2 = layout;
+    }
 
-        function getUiLanguage() {
-            return window.getCurrentUiLanguage ? window.getCurrentUiLanguage() : 'zh';
+    // 3. 应用布局状态
+    applyLayoutState();
+}
+
+// 应用布局状态到 DOM
+function applyLayoutState() {
+    if (!uiLayoutV2) return;
+
+    // 应用侧边栏折叠状态
+    const app = document.getElementById('app');
+    if (app && uiLayoutV2.sidebar && uiLayoutV2.sidebar.collapsed) {
+        app.classList.add('sidebar-collapsed');
+    }
+
+    // 应用 mailbox 列宽
+    if (uiLayoutV2.mailbox) {
+        const groupPanel = document.getElementById('groupPanel');
+        const accountPanel = document.getElementById('accountPanel');
+        if (groupPanel && uiLayoutV2.mailbox.groupPanelWidth) {
+            groupPanel.style.width = uiLayoutV2.mailbox.groupPanelWidth + 'px';
         }
-
-        function translateAppTextLocal(text) {
-            return window.translateAppText ? window.translateAppText(text) : text;
+        if (accountPanel && uiLayoutV2.mailbox.accountPanelWidth) {
+            accountPanel.style.width = uiLayoutV2.mailbox.accountPanelWidth + 'px';
         }
+    }
 
-        function formatGroupDisplayName(name) {
-            return translateAppTextLocal(String(name || '').trim());
+    // 应用 temp-emails 列宽
+    if (uiLayoutV2.tempEmails) {
+        const tempEmailPanel = document.getElementById('tempEmailPanel');
+        if (tempEmailPanel && uiLayoutV2.tempEmails.listPanelWidth) {
+            tempEmailPanel.style.width = uiLayoutV2.tempEmails.listPanelWidth + 'px';
         }
+    }
+}
 
-        function formatGroupDescription(description, fallback = '未填写说明') {
-            const rawDescription = String(description || '').trim();
-            return translateAppTextLocal(rawDescription || fallback);
+// 更新布局状态中的侧边栏折叠
+function updateLayoutSidebarCollapsed(collapsed) {
+    if (!uiLayoutV2) uiLayoutV2 = getDefaultLayoutV2();
+    uiLayoutV2.sidebar.collapsed = collapsed;
+    saveLayoutToServer();
+}
+
+// 更新布局状态中的列宽
+function updateLayoutColumnWidths() {
+    if (!uiLayoutV2) uiLayoutV2 = getDefaultLayoutV2();
+
+    // 读取 mailbox 列宽
+    const groupPanel = document.getElementById('groupPanel');
+    const accountPanel = document.getElementById('accountPanel');
+    if (groupPanel && groupPanel.style.width) {
+        const w = parseInt(groupPanel.style.width, 10);
+        if (!isNaN(w) && w > 0) {
+            uiLayoutV2.mailbox.groupPanelWidth = w;
         }
-
-        function isTempMailboxGroup(groupOrName) {
-            const rawName = typeof groupOrName === 'string'
-                ? String(groupOrName || '').trim()
-                : String(groupOrName?.name || '').trim();
-            return rawName === '临时邮箱' || rawName === 'Temp Mailboxes' || rawName === 'Temp Mailbox';
+    }
+    if (accountPanel && accountPanel.style.width) {
+        const w = parseInt(accountPanel.style.width, 10);
+        if (!isNaN(w) && w > 0) {
+            uiLayoutV2.mailbox.accountPanelWidth = w;
         }
+    }
 
-        function formatAccountStatusLabel(status) {
-            const normalized = String(status || 'active').trim().toLowerCase();
-            const zhStatusMap = {
-                active: '正常',
-                inactive: '停用',
-                disabled: '停用',
-                paused: '停用'
-            };
-            return translateAppTextLocal(zhStatusMap[normalized] || normalized || '正常');
+    // 读取 temp-emails 列宽
+    const tempEmailPanel = document.getElementById('tempEmailPanel');
+    if (tempEmailPanel && tempEmailPanel.style.width) {
+        const w = parseInt(tempEmailPanel.style.width, 10);
+        if (!isNaN(w) && w > 0) {
+            uiLayoutV2.tempEmails.listPanelWidth = w;
         }
+    }
 
-        function isRefreshableOutlookAccount(accountLike) {
-            const accountType = String(accountLike?.account_type || 'outlook').trim().toLowerCase();
-            const provider = String(accountLike?.provider || 'outlook').trim().toLowerCase();
-            return accountType !== 'imap' && provider === 'outlook';
+    saveLayoutToServer();
+}
+
+function getUiLanguage() {
+    return window.getCurrentUiLanguage ? window.getCurrentUiLanguage() : 'zh';
+}
+
+function translateAppTextLocal(text) {
+    return window.translateAppText ? window.translateAppText(text) : text;
+}
+
+function formatGroupDisplayName(name) {
+    return translateAppTextLocal(String(name || '').trim());
+}
+
+function formatGroupDescription(description, fallback = '未填写说明') {
+    const rawDescription = String(description || '').trim();
+    return translateAppTextLocal(rawDescription || fallback);
+}
+
+function isTempMailboxGroup(groupOrName) {
+    const rawName = typeof groupOrName === 'string'
+        ? String(groupOrName || '').trim()
+        : String(groupOrName?.name || '').trim();
+    return rawName === '临时邮箱' || rawName === 'Temp Mailboxes' || rawName === 'Temp Mailbox';
+}
+
+function formatAccountStatusLabel(status) {
+    const normalized = String(status || 'active').trim().toLowerCase();
+    const zhStatusMap = {
+        active: '正常',
+        inactive: '停用',
+        disabled: '停用',
+        paused: '停用'
+    };
+    return translateAppTextLocal(zhStatusMap[normalized] || normalized || '正常');
+}
+
+function isRefreshableOutlookAccount(accountLike) {
+    const accountType = String(accountLike?.account_type || 'outlook').trim().toLowerCase();
+    const provider = String(accountLike?.provider || 'outlook').trim().toLowerCase();
+    return accountType !== 'imap' && provider === 'outlook';
+}
+
+function formatSelectedItemsLabel(count) {
+    return getUiLanguage() === 'en' ? `${count} selected` : `已选 ${count} 项`;
+}
+
+const pickApiMessage = (payload, fallbackZh, fallbackEn) => (
+    window.pickApiMessage ? window.pickApiMessage(payload, fallbackZh, fallbackEn) : (fallbackZh || fallbackEn || '')
+);
+
+const formatUiDateTime = (dateStr, options = {}) => (
+    window.formatUiDateTime ? window.formatUiDateTime(dateStr, options) : (dateStr || '')
+);
+
+const formatUiRelativeTime = (dateStr, fallbackZh = '从未刷新', fallbackEn = 'Never refreshed') => (
+    window.formatUiRelativeTime ? window.formatUiRelativeTime(dateStr, fallbackZh, fallbackEn) : (dateStr || fallbackZh)
+);
+
+function parseIntegerSetting(value, fallback) {
+    if (value === null || value === undefined) {
+        return fallback;
+    }
+    const normalized = String(value).trim();
+    if (!normalized) {
+        return fallback;
+    }
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function isAutoPollingEnabledSetting(value) {
+    return value === true || value === 'true';
+}
+
+function syncPollingForCurrentAccount({ restart = false, forceRefresh = false } = {}) {
+    if (isTempEmailGroup || !currentAccount) {
+        if (isPolling && (!autoPollingEnabled || restart)) {
+            stopPolling(true);
         }
+        return;
+    }
 
-        function formatSelectedItemsLabel(count) {
-            return getUiLanguage() === 'en' ? `${count} selected` : `已选 ${count} 项`;
+    if (!autoPollingEnabled) {
+        if (isPolling) {
+            stopPolling(true);
         }
+        return;
+    }
 
-        const pickApiMessage = (payload, fallbackZh, fallbackEn) => (
-            window.pickApiMessage ? window.pickApiMessage(payload, fallbackZh, fallbackEn) : (fallbackZh || fallbackEn || '')
-        );
+    const cacheKey = `${currentAccount}_${currentFolder}`;
+    const hasCachedEmails = Object.prototype.hasOwnProperty.call(emailListCache, cacheKey);
+    const cachedEmails = hasCachedEmails ? emailListCache[cacheKey].emails : null;
 
-        const formatUiDateTime = (dateStr, options = {}) => (
-            window.formatUiDateTime ? window.formatUiDateTime(dateStr, options) : (dateStr || '')
-        );
+    if (restart && isPolling) {
+        stopPolling(true);
+    }
 
-        const formatUiRelativeTime = (dateStr, fallbackZh = '从未刷新', fallbackEn = 'Never refreshed') => (
-            window.formatUiRelativeTime ? window.formatUiRelativeTime(dateStr, fallbackZh, fallbackEn) : (dateStr || fallbackZh)
-        );
+    if (isPolling) {
+        return;
+    }
 
-        function parseIntegerSetting(value, fallback) {
-            if (value === null || value === undefined) {
-                return fallback;
-            }
-            const normalized = String(value).trim();
-            if (!normalized) {
-                return fallback;
-            }
-            const parsed = Number.parseInt(normalized, 10);
-            return Number.isNaN(parsed) ? fallback : parsed;
+    if (forceRefresh || !hasCachedEmails) {
+        loadEmails(currentAccount, forceRefresh);
+        return;
+    }
+
+    if (Array.isArray(cachedEmails)) {
+        currentEmails = cachedEmails;
+    }
+
+    startPolling();
+}
+
+function applyPollingSettings(settings, { restart = false, forceRefresh = false } = {}) {
+    autoPollingEnabled = isAutoPollingEnabledSetting(settings.enable_auto_polling);
+    pollingInterval = parseIntegerSetting(settings.polling_interval, 10);
+    maxPollingCount = parseIntegerSetting(settings.polling_count, 5);
+    syncPollingForCurrentAccount({ restart, forceRefresh });
+}
+
+// ==================== 主题 & 导航 ====================
+
+function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('ol_theme', theme);
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = theme === 'dark' ? '☀ 浅色模式' : '☾ 深色模式';
+}
+
+function toggleTheme() {
+    const current = document.documentElement.dataset.theme || 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function applyAccountPanelDensityClasses(panel, width) {
+    panel.classList.toggle('is-narrow', width < 240);
+    panel.classList.toggle('is-compact', width < 170);
+}
+
+function navigate(page) {
+    currentPage = page;
+    // Hide all pages
+    document.querySelectorAll('.page').forEach(p => p.classList.add('page-hidden'));
+    const target = document.getElementById('page-' + page);
+    if (target) {
+        target.classList.remove('page-hidden');
+        target.style.display = '';
+    }
+    // Update nav active state
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const navBtn = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (navBtn) navBtn.classList.add('active');
+    // Update topbar
+    updateTopbar(page);
+    // Close mobile sidebar
+    closeSidebar();
+    // Load page data
+    if (page === 'dashboard') loadDashboard();
+    if (page === 'mailbox') {
+        if (groups.length === 0) {
+            loadGroups();
+        } else if (currentGroupId) {
+            loadAccountsByGroup(currentGroupId);
         }
-
-        function isAutoPollingEnabledSetting(value) {
-            return value === true || value === 'true';
+        if (typeof switchMailboxViewMode === 'function') {
+            switchMailboxViewMode(mailboxViewMode);
         }
+        syncAccountPanelDensityIfVisible();
+        scheduleAccountPanelDensitySync();
+    }
+    if (page === 'temp-emails' && typeof loadTempEmails === 'function') loadTempEmails(true);
+    if (page === 'settings') loadSettings();
+    if (page === 'refresh-log') loadRefreshLogPage();
+    if (page === 'audit') loadAuditLogPage();
+    if (page === 'registrar' && typeof initRegistrar === 'function') initRegistrar();
+}
 
-        function syncPollingForCurrentAccount({ restart = false, forceRefresh = false } = {}) {
-            if (isTempEmailGroup || !currentAccount) {
-                if (isPolling && (!autoPollingEnabled || restart)) {
-                    stopPolling(true);
-                }
-                return;
-            }
-
-            if (!autoPollingEnabled) {
-                if (isPolling) {
-                    stopPolling(true);
-                }
-                return;
-            }
-
-            const cacheKey = `${currentAccount}_${currentFolder}`;
-            const hasCachedEmails = Object.prototype.hasOwnProperty.call(emailListCache, cacheKey);
-            const cachedEmails = hasCachedEmails ? emailListCache[cacheKey].emails : null;
-
-            if (restart && isPolling) {
-                stopPolling(true);
-            }
-
-            if (isPolling) {
-                return;
-            }
-
-            if (forceRefresh || !hasCachedEmails) {
-                loadEmails(currentAccount, forceRefresh);
-                return;
-            }
-
-            if (Array.isArray(cachedEmails)) {
-                currentEmails = cachedEmails;
-            }
-
-            startPolling();
-        }
-
-        function applyPollingSettings(settings, { restart = false, forceRefresh = false } = {}) {
-            autoPollingEnabled = isAutoPollingEnabledSetting(settings.enable_auto_polling);
-            pollingInterval = parseIntegerSetting(settings.polling_interval, 10);
-            maxPollingCount = parseIntegerSetting(settings.polling_count, 5);
-            syncPollingForCurrentAccount({ restart, forceRefresh });
-        }
-
-        // ==================== 主题 & 导航 ====================
-
-        function applyTheme(theme) {
-            document.documentElement.dataset.theme = theme;
-            localStorage.setItem('ol_theme', theme);
-            const btn = document.getElementById('themeToggleBtn');
-            if (btn) btn.textContent = theme === 'dark' ? '☀ 浅色模式' : '☾ 深色模式';
-        }
-
-        function toggleTheme() {
-            const current = document.documentElement.dataset.theme || 'light';
-            applyTheme(current === 'dark' ? 'light' : 'dark');
-        }
-
-        function applyAccountPanelDensityClasses(panel, width) {
-            panel.classList.toggle('is-narrow', width < 240);
-            panel.classList.toggle('is-compact', width < 170);
-        }
-
-        function navigate(page) {
-            currentPage = page;
-            // Hide all pages
-            document.querySelectorAll('.page').forEach(p => p.classList.add('page-hidden'));
-            const target = document.getElementById('page-' + page);
-            if (target) {
-                target.classList.remove('page-hidden');
-                target.style.display = '';
-            }
-            // Update nav active state
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            const navBtn = document.querySelector(`.nav-item[data-page="${page}"]`);
-            if (navBtn) navBtn.classList.add('active');
-            // Update topbar
-            updateTopbar(page);
-            // Close mobile sidebar
-            closeSidebar();
-            // Load page data
-            if (page === 'dashboard') loadDashboard();
-            if (page === 'mailbox') {
-                if (groups.length === 0) {
-                    loadGroups();
-                } else if (currentGroupId) {
-                    loadAccountsByGroup(currentGroupId);
-                }
-                if (typeof switchMailboxViewMode === 'function') {
-                    switchMailboxViewMode(mailboxViewMode);
-                }
-                syncAccountPanelDensityIfVisible();
-                scheduleAccountPanelDensitySync();
-            }
-            if (page === 'temp-emails' && typeof loadTempEmails === 'function') loadTempEmails(true);
-            if (page === 'settings') loadSettings();
-            if (page === 'refresh-log') loadRefreshLogPage();
-            if (page === 'audit') loadAuditLogPage();
-        }
-
-        function updateTopbar(page) {
-            const titleEl = document.getElementById('topbarTitle');
-            const subtitleEl = document.getElementById('topbarSubtitle');
-            const actionsEl = document.getElementById('topbar-actions');
-            const mailboxViewModeTemplate = document.getElementById('mailboxViewModeSwitcherTemplate');
-            const titles = {
-                'dashboard': ['仪表盘', '系统概览'],
-                'mailbox': ['账号管理', '管理邮箱账号与查看邮件'],
-                'temp-emails': ['临时邮箱', '创建和管理临时邮箱'],
-                'refresh-log': ['刷新日志', 'Token 刷新历史记录'],
-                'settings': ['系统设置', '配置系统参数'],
-                'audit': ['审计日志', '系统操作记录']
-            };
-            const t = titles[page] || [page, ''];
-            if (titleEl) titleEl.textContent = translateAppTextLocal(t[0]);
-            if (subtitleEl) subtitleEl.textContent = translateAppTextLocal(t[1]);
-            // Context actions
-            if (actionsEl) {
-                actionsEl.classList.remove('topbar-actions-compact');
-                if (page === 'mailbox') {
-                    const switcherHtml = mailboxViewModeTemplate ? mailboxViewModeTemplate.innerHTML.trim() : '';
-                    const isCompactMode = mailboxViewMode === 'compact';
-                    actionsEl.innerHTML = isCompactMode ? `
+function updateTopbar(page) {
+    const titleEl = document.getElementById('topbarTitle');
+    const subtitleEl = document.getElementById('topbarSubtitle');
+    const actionsEl = document.getElementById('topbar-actions');
+    const mailboxViewModeTemplate = document.getElementById('mailboxViewModeSwitcherTemplate');
+    const titles = {
+        'dashboard': ['仪表盘', '系统概览'],
+        'mailbox': ['账号管理', '管理邮箱账号与查看邮件'],
+        'temp-emails': ['临时邮箱', '创建和管理临时邮箱'],
+        'refresh-log': ['刷新日志', 'Token 刷新历史记录'],
+        'settings': ['系统设置', '配置系统参数'],
+        'audit': ['审计日志', '系统操作记录'],
+        'registrar': ['自动注册', 'Outlook 账号自动注册控制面板']
+    };
+    const t = titles[page] || [page, ''];
+    if (titleEl) titleEl.textContent = translateAppTextLocal(t[0]);
+    if (subtitleEl) subtitleEl.textContent = translateAppTextLocal(t[1]);
+    // Context actions
+    if (actionsEl) {
+        actionsEl.classList.remove('topbar-actions-compact');
+        if (page === 'mailbox') {
+            const switcherHtml = mailboxViewModeTemplate ? mailboxViewModeTemplate.innerHTML.trim() : '';
+            const isCompactMode = mailboxViewMode === 'compact';
+            actionsEl.innerHTML = isCompactMode ? `
                         ${switcherHtml}
                     ` : `
                         ${switcherHtml}
@@ -471,904 +473,904 @@
                         <button class="btn-inline ghost" onclick="showExportModal()">📤 导出</button>
                         <button class="btn-inline ghost" onclick="showRefreshModal()">🔄 全量刷新 Token</button>
                     `;
-                    actionsEl.classList.toggle('topbar-actions-compact', isCompactMode);
-                    if (subtitleEl) {
-                        subtitleEl.textContent = translateAppTextLocal(
-                            isCompactMode ? '按分组查看账号摘要与验证码' : '管理邮箱账号与查看邮件'
-                        );
-                    }
-                    const standardBtn = document.getElementById('mailboxStandardModeBtn');
-                    const compactBtn = document.getElementById('mailboxCompactModeBtn');
-                    if (standardBtn) {
-                        standardBtn.classList.toggle('active', mailboxViewMode === 'standard');
-                    }
-                    if (compactBtn) {
-                        compactBtn.classList.toggle('active', mailboxViewMode === 'compact');
-                    }
-                } else if (page === 'temp-emails') {
-                    actionsEl.innerHTML = `
+            actionsEl.classList.toggle('topbar-actions-compact', isCompactMode);
+            if (subtitleEl) {
+                subtitleEl.textContent = translateAppTextLocal(
+                    isCompactMode ? '按分组查看账号摘要与验证码' : '管理邮箱账号与查看邮件'
+                );
+            }
+            const standardBtn = document.getElementById('mailboxStandardModeBtn');
+            const compactBtn = document.getElementById('mailboxCompactModeBtn');
+            if (standardBtn) {
+                standardBtn.classList.toggle('active', mailboxViewMode === 'standard');
+            }
+            if (compactBtn) {
+                compactBtn.classList.toggle('active', mailboxViewMode === 'compact');
+            }
+        } else if (page === 'temp-emails') {
+            actionsEl.innerHTML = `
                         <button class="btn btn-sm btn-primary" onclick="generateTempEmail()">＋ 创建邮箱</button>
                     `;
-                } else {
-                    actionsEl.innerHTML = '';
-                }
+        } else {
+            actionsEl.innerHTML = '';
+        }
+    }
+}
+
+function toggleSidebar() {
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+        // Mobile: toggle drawer
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        sidebar.classList.toggle('mob-open');
+        backdrop.classList.toggle('show');
+    } else {
+        // Desktop: toggle collapsed state
+        const app = document.getElementById('app');
+        app.classList.toggle('sidebar-collapsed');
+        const collapsed = app.classList.contains('sidebar-collapsed');
+        // 使用新的布局状态管理保存
+        updateLayoutSidebarCollapsed(collapsed);
+    }
+}
+
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (sidebar) sidebar.classList.remove('mob-open');
+    if (backdrop) backdrop.classList.remove('show');
+}
+
+function logout() {
+    if (!confirm(translateAppTextLocal('确认退出登录？'))) return;
+    window.location.href = '/logout';
+}
+
+// ==================== Dashboard ====================
+
+async function loadDashboard() {
+    try {
+        const [groupsRes, tempRes] = await Promise.all([
+            fetch('/api/groups'),
+            fetch('/api/temp-emails').catch(() => ({ json: () => ({ success: false }) }))
+        ]);
+        const groupsData = await groupsRes.json();
+        const tempData = await tempRes.json();
+
+        let totalAccounts = 0, validTokens = 0, expiredTokens = 0;
+        const groupSummary = [];
+
+        if (groupsData.success && groupsData.groups) {
+            for (const g of groupsData.groups) {
+                const accRes = await fetch(`/api/accounts?group_id=${g.id}`);
+                const accData = await accRes.json();
+                const accounts = accData.success ? (accData.accounts || []) : [];
+                totalAccounts += accounts.length;
+                accounts.forEach(a => {
+                    if (!isRefreshableOutlookAccount(a)) {
+                        return;
+                    }
+                    if (a.last_refresh_status === 'failed') expiredTokens++;
+                    else validTokens++;
+                });
+                groupSummary.push({ id: g.id, name: g.name, color: g.color || '#666', count: accounts.length, isTempGroup: g.name === '临时邮箱' });
             }
         }
 
-        function toggleSidebar() {
-            const isMobile = window.innerWidth <= 768;
-            if (isMobile) {
-                // Mobile: toggle drawer
-                const sidebar = document.getElementById('sidebar');
-                const backdrop = document.getElementById('sidebarBackdrop');
-                sidebar.classList.toggle('mob-open');
-                backdrop.classList.toggle('show');
+        // Update stat cards
+        const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+        el('statTotalAccounts', totalAccounts);
+        el('statValidTokens', validTokens);
+        el('statExpiredTokens', expiredTokens);
+        el('statTempEmails', tempData.success ? (tempData.emails || []).length : 0);
+
+        // Update topbar subtitle with summary
+        const sub = document.getElementById('topbarSubtitle');
+        if (sub && currentPage === 'dashboard') {
+            sub.textContent = translateAppTextLocal(`共 ${totalAccounts} 个账号 · ${validTokens} 个 Token 有效`);
+        }
+
+        // Group summary list
+        const groupListEl = document.getElementById('dashboardGroupList');
+        if (groupListEl) {
+            if (groupSummary.length === 0) {
+                groupListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('暂无分组')}</li>`;
             } else {
-                // Desktop: toggle collapsed state
-                const app = document.getElementById('app');
-                app.classList.toggle('sidebar-collapsed');
-                const collapsed = app.classList.contains('sidebar-collapsed');
-                // 使用新的布局状态管理保存
-                updateLayoutSidebarCollapsed(collapsed);
+                groupListEl.innerHTML = groupSummary.map(g => {
+                    const clickAction = g.isTempGroup
+                        ? `navigate('temp-emails')`
+                        : `navigate('mailbox'); setTimeout(function(){ selectGroup(${g.id}); }, 100)`;
+                    return `<li style="cursor:pointer;" onclick="${clickAction}"><span style="display:flex;align-items:center;gap:0.5rem;"><span class="group-color-dot" style="background:${escapeHtml(g.color)};"></span>${escapeHtml(g.name)}</span><span class="badge badge-gray">${g.count}</span></li>`;
+                }).join('');
             }
         }
 
-        function closeSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const backdrop = document.getElementById('sidebarBackdrop');
-            if (sidebar) sidebar.classList.remove('mob-open');
-            if (backdrop) backdrop.classList.remove('show');
-        }
-
-        function logout() {
-            if (!confirm(translateAppTextLocal('确认退出登录？'))) return;
-            window.location.href = '/logout';
-        }
-
-        // ==================== Dashboard ====================
-
-        async function loadDashboard() {
+        // Refresh log summary
+        const refreshListEl = document.getElementById('dashboardRefreshList');
+        if (refreshListEl) {
             try {
-                const [groupsRes, tempRes] = await Promise.all([
-                    fetch('/api/groups'),
-                    fetch('/api/temp-emails').catch(() => ({ json: () => ({ success: false }) }))
-                ]);
-                const groupsData = await groupsRes.json();
-                const tempData = await tempRes.json();
-
-                let totalAccounts = 0, validTokens = 0, expiredTokens = 0;
-                const groupSummary = [];
-
-                if (groupsData.success && groupsData.groups) {
-                    for (const g of groupsData.groups) {
-                        const accRes = await fetch(`/api/accounts?group_id=${g.id}`);
-                        const accData = await accRes.json();
-                        const accounts = accData.success ? (accData.accounts || []) : [];
-                        totalAccounts += accounts.length;
-                        accounts.forEach(a => {
-                            if (!isRefreshableOutlookAccount(a)) {
-                                return;
-                            }
-                            if (a.last_refresh_status === 'failed') expiredTokens++;
-                            else validTokens++;
-                        });
-                        groupSummary.push({ id: g.id, name: g.name, color: g.color || '#666', count: accounts.length, isTempGroup: g.name === '临时邮箱' });
-                    }
-                }
-
-                // Update stat cards
-                const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-                el('statTotalAccounts', totalAccounts);
-                el('statValidTokens', validTokens);
-                el('statExpiredTokens', expiredTokens);
-                el('statTempEmails', tempData.success ? (tempData.emails || []).length : 0);
-
-                // Update topbar subtitle with summary
-                const sub = document.getElementById('topbarSubtitle');
-                if (sub && currentPage === 'dashboard') {
-                    sub.textContent = translateAppTextLocal(`共 ${totalAccounts} 个账号 · ${validTokens} 个 Token 有效`);
-                }
-
-                // Group summary list
-                const groupListEl = document.getElementById('dashboardGroupList');
-                if (groupListEl) {
-                    if (groupSummary.length === 0) {
-                        groupListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('暂无分组')}</li>`;
-                    } else {
-                        groupListEl.innerHTML = groupSummary.map(g => {
-                            const clickAction = g.isTempGroup
-                                ? `navigate('temp-emails')`
-                                : `navigate('mailbox'); setTimeout(function(){ selectGroup(${g.id}); }, 100)`;
-                            return `<li style="cursor:pointer;" onclick="${clickAction}"><span style="display:flex;align-items:center;gap:0.5rem;"><span class="group-color-dot" style="background:${escapeHtml(g.color)};"></span>${escapeHtml(g.name)}</span><span class="badge badge-gray">${g.count}</span></li>`;
-                        }).join('');
-                    }
-                }
-
-                // Refresh log summary
-                const refreshListEl = document.getElementById('dashboardRefreshList');
-                if (refreshListEl) {
-                    try {
-                        const refreshRes = await fetch('/api/accounts/refresh-stats');
-                        const refreshData = await refreshRes.json();
-                        if (refreshData.success && refreshData.stats) {
-                            const rs = refreshData.stats;
-                            refreshListEl.innerHTML = `
+                const refreshRes = await fetch('/api/accounts/refresh-stats');
+                const refreshData = await refreshRes.json();
+                if (refreshData.success && refreshData.stats) {
+                    const rs = refreshData.stats;
+                    refreshListEl.innerHTML = `
                                 <li><span>${translateAppTextLocal('上次刷新时间')}</span><span class="badge badge-gray">${escapeHtml(rs.last_refresh_time || translateAppTextLocal('暂无'))}</span></li>
                                 <li><span>${translateAppTextLocal('成功账号数')}</span><span class="badge" style="background:var(--clr-jade);color:white;">${rs.success_count}</span></li>
                                 <li><span>${translateAppTextLocal('失败账号数')}</span><span class="badge" style="background:${rs.failed_count > 0 ? 'var(--clr-danger)' : 'var(--clr-jade)'};color:white;">${rs.failed_count}</span></li>
                             `;
-                        } else {
-                            refreshListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('暂无刷新记录')}</li>`;
-                        }
-                    } catch (e) {
-                        refreshListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('前往刷新日志查看详情')}</li>`;
-                    }
+                } else {
+                    refreshListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('暂无刷新记录')}</li>`;
                 }
             } catch (e) {
-                console.error('Dashboard load error:', e);
+                refreshListEl.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">${translateAppTextLocal('前往刷新日志查看详情')}</li>`;
             }
         }
+    } catch (e) {
+        console.error('Dashboard load error:', e);
+    }
+}
 
-        // ==================== 分组搜索过滤 ====================
+// ==================== 分组搜索过滤 ====================
 
-        function filterGroups(query) {
-            const items = document.querySelectorAll('#groupList .group-item');
-            const q = query.toLowerCase();
-            items.forEach(item => {
-                const name = item.querySelector('.group-name');
-                if (name && name.textContent.toLowerCase().includes(q)) {
-                    item.style.display = '';
-                } else {
-                    item.style.display = q ? 'none' : '';
-                }
-            });
+function filterGroups(query) {
+    const items = document.querySelectorAll('#groupList .group-item');
+    const q = query.toLowerCase();
+    items.forEach(item => {
+        const name = item.querySelector('.group-name');
+        if (name && name.textContent.toLowerCase().includes(q)) {
+            item.style.display = '';
+        } else {
+            item.style.display = q ? 'none' : '';
         }
+    });
+}
 
-        // ==================== 三栏拖拽调整 ====================
+// ==================== 三栏拖拽调整 ====================
 
-        function updateAccountPanelDensity() {
-            const panel = document.getElementById('accountPanel');
-            if (!panel) return;
-            const width = panel.getBoundingClientRect().width;
-            applyAccountPanelDensityClasses(panel, width);
+function updateAccountPanelDensity() {
+    const panel = document.getElementById('accountPanel');
+    if (!panel) return;
+    const width = panel.getBoundingClientRect().width;
+    applyAccountPanelDensityClasses(panel, width);
+}
+
+function syncAccountPanelDensityIfVisible() {
+    const page = document.getElementById('page-mailbox');
+    const panel = document.getElementById('accountPanel');
+    if (!page || !panel || page.classList.contains('page-hidden')) {
+        return false;
+    }
+
+    const width = panel.getBoundingClientRect().width;
+    if (width <= 0) {
+        return false;
+    }
+
+    applyAccountPanelDensityClasses(panel, width);
+    return true;
+}
+
+function scheduleAccountPanelDensitySync() {
+    // 使用双层 rAF（以及 setTimeout fallback）刻意等待切页/拖拽后的布局回流完成，
+    // 避免首次进入 mailbox 时按 0 宽或旧宽度错误计算紧凑模式。
+    const runSync = () => {
+        accountPanelDensitySyncHandle = null;
+        syncAccountPanelDensityIfVisible();
+    };
+
+    if (accountPanelDensitySyncHandle !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(accountPanelDensitySyncHandle);
+        } else {
+            clearTimeout(accountPanelDensitySyncHandle);
         }
+        accountPanelDensitySyncHandle = null;
+    }
 
-        function syncAccountPanelDensityIfVisible() {
-            const page = document.getElementById('page-mailbox');
-            const panel = document.getElementById('accountPanel');
-            if (!page || !panel || page.classList.contains('page-hidden')) {
-                return false;
+    if (typeof requestAnimationFrame === 'function') {
+        accountPanelDensitySyncHandle = requestAnimationFrame(() => {
+            accountPanelDensitySyncHandle = requestAnimationFrame(runSync);
+        });
+        return;
+    }
+
+    accountPanelDensitySyncHandle = setTimeout(runSync, 0);
+}
+
+function initResizeHandles() {
+    // 支持新的 .workspace-resizer 和旧的 .resize-handle 类名
+    document.querySelectorAll('.workspace-resizer, .resize-handle').forEach(handle => {
+        handle.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            const leftId = this.dataset.left;
+            const rightId = this.dataset.right;
+            const leftPanel = document.getElementById(leftId);
+            const rightPanel = document.getElementById(rightId);
+            if (!leftPanel) return;
+
+            this.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            const startX = e.clientX;
+            const startWidth = leftPanel.offsetWidth;
+
+            function onMouseMove(ev) {
+                const delta = ev.clientX - startX;
+                const newWidth = Math.max(120, Math.min(startWidth + delta, 500));
+                leftPanel.style.width = newWidth + 'px';
+                updateAccountPanelDensity();
             }
 
-            const width = panel.getBoundingClientRect().width;
-            if (width <= 0) {
-                return false;
+            function onMouseUp() {
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                // 使用新的布局状态管理保存列宽
+                updateLayoutColumnWidths();
             }
 
-            applyAccountPanelDensityClasses(panel, width);
-            return true;
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
+
+    // 布局状态已在 initLayoutState() 中恢复，这里只需更新紧凑模式
+    if (currentPage === 'mailbox') {
+        syncAccountPanelDensityIfVisible();
+        scheduleAccountPanelDensitySync();
+    }
+    window.addEventListener('resize', scheduleAccountPanelDensitySync, { passive: true });
+}
+
+// ==================== 邮件详情显示控制 ====================
+
+function showEmailDetailSection() {
+    const section = document.getElementById('emailDetailSection');
+    if (section) section.style.display = 'flex';
+}
+
+function hideEmailDetailSection() {
+    const section = document.getElementById('emailDetailSection');
+    if (section) section.style.display = 'none';
+}
+
+function stopRefresh() {
+    // Placeholder for stopping a bulk refresh operation
+    showToast(translateAppTextLocal('刷新已停止'), 'warn');
+    const bar = document.getElementById('refreshProgressBar');
+    if (bar) bar.style.display = 'none';
+}
+
+// ==================== CSRF 防护 ====================
+
+function isMutationRequest(method) {
+    const normalizedMethod = (method || 'GET').toUpperCase();
+    return !['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod);
+}
+
+function cloneHeaders(headers) {
+    return new Headers(headers || {});
+}
+
+function buildFetchRequest(input, options = {}) {
+    if (input instanceof Request) {
+        const mergedHeaders = cloneHeaders(input.headers);
+        const optionHeaders = cloneHeaders(options.headers);
+        optionHeaders.forEach((value, key) => mergedHeaders.set(key, value));
+
+        const requestOptions = {
+            ...options,
+            headers: mergedHeaders
+        };
+
+        return {
+            method: (requestOptions.method || input.method || 'GET').toUpperCase(),
+            setHeader(name, value) {
+                mergedHeaders.set(name, value);
+            },
+            execute() {
+                return originalFetch(new Request(input, requestOptions));
+            }
+        };
+    }
+
+    const requestOptions = {
+        ...options,
+        headers: cloneHeaders(options.headers)
+    };
+
+    return {
+        method: (requestOptions.method || 'GET').toUpperCase(),
+        setHeader(name, value) {
+            requestOptions.headers.set(name, value);
+        },
+        execute() {
+            return originalFetch(input, requestOptions);
         }
+    };
+}
 
-        function scheduleAccountPanelDensitySync() {
-            // 使用双层 rAF（以及 setTimeout fallback）刻意等待切页/拖拽后的布局回流完成，
-            // 避免首次进入 mailbox 时按 0 宽或旧宽度错误计算紧凑模式。
-            const runSync = () => {
-                accountPanelDensitySyncHandle = null;
-                syncAccountPanelDensityIfVisible();
-            };
+async function parseJsonSafely(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        return null;
+    }
 
-            if (accountPanelDensitySyncHandle !== null) {
-                if (typeof cancelAnimationFrame === 'function') {
-                    cancelAnimationFrame(accountPanelDensitySyncHandle);
-                } else {
-                    clearTimeout(accountPanelDensitySyncHandle);
-                }
-                accountPanelDensitySyncHandle = null;
+    try {
+        return await response.clone().json();
+    } catch (error) {
+        return null;
+    }
+}
+
+function isCsrfFailurePayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+        return false;
+    }
+
+    const error = payload.error && typeof payload.error === 'object' ? payload.error : payload;
+    return error.code === 'CSRF_TOKEN_INVALID';
+}
+
+// 初始化 CSRF Token
+async function initCSRFToken({ force = false, silent = false } = {}) {
+    if (!force && csrfToken) {
+        return csrfToken;
+    }
+
+    // 单飞刷新：并发写请求共享同一次 token 拉取；若后端明确返回 CSRF_TOKEN_INVALID，
+    // fetch 包装层会强制刷新 token 并只重放一次原请求，避免无限重试或抢刷 token。
+    if (csrfTokenRefreshPromise) {
+        return csrfTokenRefreshPromise;
+    }
+
+    csrfTokenRefreshPromise = (async () => {
+        try {
+            const response = await originalFetch('/api/csrf-token');
+            if (!response.ok) {
+                throw new Error(`csrf_token_http_${response.status}`);
             }
 
-            if (typeof requestAnimationFrame === 'function') {
-                accountPanelDensitySyncHandle = requestAnimationFrame(() => {
-                    accountPanelDensitySyncHandle = requestAnimationFrame(runSync);
-                });
-                return;
-            }
-
-            accountPanelDensitySyncHandle = setTimeout(runSync, 0);
-        }
-
-        function initResizeHandles() {
-            // 支持新的 .workspace-resizer 和旧的 .resize-handle 类名
-            document.querySelectorAll('.workspace-resizer, .resize-handle').forEach(handle => {
-                handle.addEventListener('mousedown', function(e) {
-                    e.preventDefault();
-                    const leftId = this.dataset.left;
-                    const rightId = this.dataset.right;
-                    const leftPanel = document.getElementById(leftId);
-                    const rightPanel = document.getElementById(rightId);
-                    if (!leftPanel) return;
-
-                    this.classList.add('active');
-                    document.body.style.cursor = 'col-resize';
-                    document.body.style.userSelect = 'none';
-
-                    const startX = e.clientX;
-                    const startWidth = leftPanel.offsetWidth;
-
-                    function onMouseMove(ev) {
-                        const delta = ev.clientX - startX;
-                        const newWidth = Math.max(120, Math.min(startWidth + delta, 500));
-                        leftPanel.style.width = newWidth + 'px';
-                        updateAccountPanelDensity();
-                    }
-
-                    function onMouseUp() {
-                        handle.classList.remove('active');
-                        document.body.style.cursor = '';
-                        document.body.style.userSelect = '';
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', onMouseUp);
-                        // 使用新的布局状态管理保存列宽
-                        updateLayoutColumnWidths();
-                    }
-
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
-                });
-            });
-
-            // 布局状态已在 initLayoutState() 中恢复，这里只需更新紧凑模式
-            if (currentPage === 'mailbox') {
-                syncAccountPanelDensityIfVisible();
-                scheduleAccountPanelDensitySync();
-            }
-            window.addEventListener('resize', scheduleAccountPanelDensitySync, { passive: true });
-        }
-
-        // ==================== 邮件详情显示控制 ====================
-
-        function showEmailDetailSection() {
-            const section = document.getElementById('emailDetailSection');
-            if (section) section.style.display = 'flex';
-        }
-
-        function hideEmailDetailSection() {
-            const section = document.getElementById('emailDetailSection');
-            if (section) section.style.display = 'none';
-        }
-
-        function stopRefresh() {
-            // Placeholder for stopping a bulk refresh operation
-            showToast(translateAppTextLocal('刷新已停止'), 'warn');
-            const bar = document.getElementById('refreshProgressBar');
-            if (bar) bar.style.display = 'none';
-        }
-
-        // ==================== CSRF 防护 ====================
-
-        function isMutationRequest(method) {
-            const normalizedMethod = (method || 'GET').toUpperCase();
-            return !['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod);
-        }
-
-        function cloneHeaders(headers) {
-            return new Headers(headers || {});
-        }
-
-        function buildFetchRequest(input, options = {}) {
-            if (input instanceof Request) {
-                const mergedHeaders = cloneHeaders(input.headers);
-                const optionHeaders = cloneHeaders(options.headers);
-                optionHeaders.forEach((value, key) => mergedHeaders.set(key, value));
-
-                const requestOptions = {
-                    ...options,
-                    headers: mergedHeaders
-                };
-
-                return {
-                    method: (requestOptions.method || input.method || 'GET').toUpperCase(),
-                    setHeader(name, value) {
-                        mergedHeaders.set(name, value);
-                    },
-                    execute() {
-                        return originalFetch(new Request(input, requestOptions));
-                    }
-                };
-            }
-
-            const requestOptions = {
-                ...options,
-                headers: cloneHeaders(options.headers)
-            };
-
-            return {
-                method: (requestOptions.method || 'GET').toUpperCase(),
-                setHeader(name, value) {
-                    requestOptions.headers.set(name, value);
-                },
-                execute() {
-                    return originalFetch(input, requestOptions);
-                }
-            };
-        }
-
-        async function parseJsonSafely(response) {
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                return null;
-            }
-
-            try {
-                return await response.clone().json();
-            } catch (error) {
-                return null;
-            }
-        }
-
-        function isCsrfFailurePayload(payload) {
-            if (!payload || typeof payload !== 'object') {
-                return false;
-            }
-
-            const error = payload.error && typeof payload.error === 'object' ? payload.error : payload;
-            return error.code === 'CSRF_TOKEN_INVALID';
-        }
-
-        // 初始化 CSRF Token
-        async function initCSRFToken({ force = false, silent = false } = {}) {
-            if (!force && csrfToken) {
+            const data = await response.json();
+            if (data.csrf_disabled) {
+                csrfToken = null;
+                console.warn('CSRF protection is disabled. Install flask-wtf for better security.');
                 return csrfToken;
             }
 
-            // 单飞刷新：并发写请求共享同一次 token 拉取；若后端明确返回 CSRF_TOKEN_INVALID，
-            // fetch 包装层会强制刷新 token 并只重放一次原请求，避免无限重试或抢刷 token。
-            if (csrfTokenRefreshPromise) {
-                return csrfTokenRefreshPromise;
+            if (!data.csrf_token) {
+                throw new Error('csrf_token_missing_in_response');
             }
 
-            csrfTokenRefreshPromise = (async () => {
-                try {
-                    const response = await originalFetch('/api/csrf-token');
-                    if (!response.ok) {
-                        throw new Error(`csrf_token_http_${response.status}`);
-                    }
-
-                    const data = await response.json();
-                    if (data.csrf_disabled) {
-                        csrfToken = null;
-                        console.warn('CSRF protection is disabled. Install flask-wtf for better security.');
-                        return csrfToken;
-                    }
-
-                    if (!data.csrf_token) {
-                        throw new Error('csrf_token_missing_in_response');
-                    }
-
-                    csrfToken = data.csrf_token;
-                    return csrfToken;
-                } catch (error) {
-                    if (!silent) {
-                        showToast(translateAppTextLocal('初始化安全会话失败，请刷新页面后重试'), 'error');
-                    }
-                    console.error('Failed to initialize CSRF token:', error);
-                    throw error;
-                } finally {
-                    csrfTokenRefreshPromise = null;
-                }
-            })();
-
-            return csrfTokenRefreshPromise;
+            csrfToken = data.csrf_token;
+            return csrfToken;
+        } catch (error) {
+            if (!silent) {
+                showToast(translateAppTextLocal('初始化安全会话失败，请刷新页面后重试'), 'error');
+            }
+            console.error('Failed to initialize CSRF token:', error);
+            throw error;
+        } finally {
+            csrfTokenRefreshPromise = null;
         }
+    })();
 
-        // 包装 fetch 请求，自动添加 CSRF Token
-        const originalFetch = window.fetch;
-        window.fetch = async function (input, options = {}) {
-            const request = buildFetchRequest(input, options);
-            const shouldAttachCsrf = isMutationRequest(request.method);
+    return csrfTokenRefreshPromise;
+}
 
-            if (shouldAttachCsrf && !csrfToken) {
-                try {
-                    await initCSRFToken({ silent: true });
-                } catch (error) {
-                    // 让原请求继续发出，由后端返回明确的 CSRF 错误提示
-                }
-            }
+// 包装 fetch 请求，自动添加 CSRF Token
+const originalFetch = window.fetch;
+window.fetch = async function (input, options = {}) {
+    const request = buildFetchRequest(input, options);
+    const shouldAttachCsrf = isMutationRequest(request.method);
 
-            if (shouldAttachCsrf && csrfToken) {
-                request.setHeader('X-CSRFToken', csrfToken);
-            }
+    if (shouldAttachCsrf && !csrfToken) {
+        try {
+            await initCSRFToken({ silent: true });
+        } catch (error) {
+            // 让原请求继续发出，由后端返回明确的 CSRF 错误提示
+        }
+    }
 
-            const response = await request.execute();
-            if (!shouldAttachCsrf || options.__skipCsrfRetry || response.status !== 400) {
-                return response;
-            }
+    if (shouldAttachCsrf && csrfToken) {
+        request.setHeader('X-CSRFToken', csrfToken);
+    }
 
-            const payload = await parseJsonSafely(response);
-            if (!isCsrfFailurePayload(payload)) {
-                return response;
-            }
+    const response = await request.execute();
+    if (!shouldAttachCsrf || options.__skipCsrfRetry || response.status !== 400) {
+        return response;
+    }
 
-            try {
-                await initCSRFToken({ force: true, silent: true });
-            } catch (error) {
-                return response;
-            }
+    const payload = await parseJsonSafely(response);
+    if (!isCsrfFailurePayload(payload)) {
+        return response;
+    }
 
-            if (!csrfToken) {
-                return response;
-            }
+    try {
+        await initCSRFToken({ force: true, silent: true });
+    } catch (error) {
+        return response;
+    }
 
-            const retryRequest = buildFetchRequest(input, {
-                ...options,
-                __skipCsrfRetry: true
-            });
-            retryRequest.setHeader('X-CSRFToken', csrfToken);
-            return retryRequest.execute();
-        };
+    if (!csrfToken) {
+        return response;
+    }
 
-        // 初始化
-        document.addEventListener('DOMContentLoaded', async function () {
-            // 应用保存的主题
-            applyTheme(localStorage.getItem('ol_theme') || 'light');
+    const retryRequest = buildFetchRequest(input, {
+        ...options,
+        __skipCsrfRetry: true
+    });
+    retryRequest.setHeader('X-CSRFToken', csrfToken);
+    return retryRequest.execute();
+};
 
-            // 初始化 CSRF Token。失败时不阻断首屏，其它初始化继续执行，
-            // 具体的写请求再走按需恢复逻辑。
-            try {
-                await initCSRFToken();
-            } catch (error) {}
+// 初始化
+document.addEventListener('DOMContentLoaded', async function () {
+    // 应用保存的主题
+    applyTheme(localStorage.getItem('ol_theme') || 'light');
 
-            // 初始化布局状态（从后端读取或迁移旧 localStorage）
-            await initLayoutState();
+    // 初始化 CSRF Token。失败时不阻断首屏，其它初始化继续执行，
+    // 具体的写请求再走按需恢复逻辑。
+    try {
+        await initCSRFToken();
+    } catch (error) { }
 
-            closeAllModals();
-            loadGroups();
-            if (typeof loadTags === 'function') {
-                loadTags();
-            }
-            initColorPicker();
-            initEmailListScroll();
-            initResizeHandles();
+    // 初始化布局状态（从后端读取或迁移旧 localStorage）
+    await initLayoutState();
 
-            // 初始化轮询设置
-            initPollingSettings();
+    closeAllModals();
+    loadGroups();
+    if (typeof loadTags === 'function') {
+        loadTags();
+    }
+    initColorPicker();
+    initEmailListScroll();
+    initResizeHandles();
 
-            // 请求浏览器通知权限
-            if ('Notification' in window && Notification.permission === 'default') {
-                Notification.requestPermission();
-            }
+    // 初始化轮询设置
+    initPollingSettings();
 
-            // 绑定搜索框事件
-            const searchInput = document.getElementById('globalSearch');
-            if (searchInput) {
-                const debouncedSearch = debounce((e) => {
-                    searchAccounts(e.target.value);
-                }, 300);
-                searchInput.addEventListener('input', debouncedSearch);
-            }
+    // 请求浏览器通知权限
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
 
-            // 加载仪表盘
-            loadDashboard();
+    // 绑定搜索框事件
+    const searchInput = document.getElementById('globalSearch');
+    if (searchInput) {
+        const debouncedSearch = debounce((e) => {
+            searchAccounts(e.target.value);
+        }, 300);
+        searchInput.addEventListener('input', debouncedSearch);
+    }
+
+    // 加载仪表盘
+    loadDashboard();
+});
+
+// 初始化颜色选择器
+function initColorPicker() {
+    document.querySelectorAll('.color-option').forEach(option => {
+        option.addEventListener('click', function () {
+            document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+            this.classList.add('selected');
+            selectedColor = this.dataset.color;
+            // 同步更新自定义颜色输入框
+            document.getElementById('customColorInput').value = selectedColor;
+            document.getElementById('customColorHex').value = selectedColor;
         });
+    });
+}
 
-        // 初始化颜色选择器
-        function initColorPicker() {
-            document.querySelectorAll('.color-option').forEach(option => {
-                option.addEventListener('click', function () {
-                    document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-                    this.classList.add('selected');
-                    selectedColor = this.dataset.color;
-                    // 同步更新自定义颜色输入框
-                    document.getElementById('customColorInput').value = selectedColor;
-                    document.getElementById('customColorHex').value = selectedColor;
-                });
-            });
-        }
-
-        // 初始化邮件列表滚动监听
-        function initEmailListScroll() {
-            const emailList = document.getElementById('emailList');
-            emailList.addEventListener('scroll', function () {
-                // 检查是否滚动到底部
-                if (emailList.scrollHeight - emailList.scrollTop <= emailList.clientHeight + 50) {
-                    if (!isLoadingMore && hasMoreEmails && currentAccount && !isTempEmailGroup) {
-                        loadMoreEmails();
-                    }
-                }
-            });
-        }
-
-        // 加载更多邮件
-        async function loadMoreEmails() {
-            if (isLoadingMore || !hasMoreEmails) return;
-
-            isLoadingMore = true;
-            currentSkip += 20; // 每页20封
-
-            // 在列表底部显示加载状态
-            const emailList = document.getElementById('emailList');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'loading-overlay';
-            loadingDiv.id = 'loadingMore';
-            loadingDiv.innerHTML = `<span class="spinner"></span> ${translateAppTextLocal('加载更多…')}`;
-            emailList.appendChild(loadingDiv);
-
-            // 禁用按钮
-            const refreshBtn = document.querySelector('.refresh-btn');
-            const folderTabs = document.querySelectorAll('.email-tab');
-            if (refreshBtn) {
-                refreshBtn.disabled = true;
-            }
-            folderTabs.forEach(tab => tab.disabled = true);
-
-            try {
-                const response = await fetch(
-                    `/api/emails/${encodeURIComponent(currentAccount)}?method=${currentMethod}&folder=${currentFolder}&skip=${currentSkip}&top=20`
-                );
-                const data = await response.json();
-
-                if (data.success && data.emails.length > 0) {
-                    // 追加新邮件到列表
-                    currentEmails = currentEmails.concat(data.emails);
-                    hasMoreEmails = data.has_more;
-
-                    // 移除加载状态
-                    const loadingEl = document.getElementById('loadingMore');
-                    if (loadingEl) loadingEl.remove();
-
-                    // 重新渲染邮件列表
-                    renderEmailList(currentEmails);
-
-                    // 更新邮件数量
-                    document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
-
-                    // 更新缓存
-                    if (currentAccount && !isTempEmailGroup) {
-                        const cacheKey = `${currentAccount}_${currentFolder}`;
-                        if (emailListCache[cacheKey]) {
-                            emailListCache[cacheKey].emails = currentEmails;
-                            emailListCache[cacheKey].has_more = hasMoreEmails;
-                            emailListCache[cacheKey].skip = currentSkip;
-                        }
-                    }
-                } else {
-                    hasMoreEmails = false;
-                    // 显示"没有更多邮件"
-                    const loadingEl = document.getElementById('loadingMore');
-                    if (loadingEl) {
-                        loadingEl.innerHTML = `<div style="text-align:center;padding:20px;color:#999;font-size:13px;">${translateAppTextLocal('没有更多邮件了')}</div>`;
-                    }
-                }
-            } catch (error) {
-                const loadingEl = document.getElementById('loadingMore');
-                if (loadingEl) loadingEl.remove();
-                showToast(translateAppTextLocal('加载失败'), 'error');
-            } finally {
-                isLoadingMore = false;
-                // 启用按钮
-                if (refreshBtn) {
-                    refreshBtn.disabled = false;
-                }
-                folderTabs.forEach(tab => tab.disabled = false);
+// 初始化邮件列表滚动监听
+function initEmailListScroll() {
+    const emailList = document.getElementById('emailList');
+    emailList.addEventListener('scroll', function () {
+        // 检查是否滚动到底部
+        if (emailList.scrollHeight - emailList.scrollTop <= emailList.clientHeight + 50) {
+            if (!isLoadingMore && hasMoreEmails && currentAccount && !isTempEmailGroup) {
+                loadMoreEmails();
             }
         }
+    });
+}
 
-        // 切换文件夹（不触发查询）
-        function switchFolder(folder) {
-            if (currentFolder === folder) return;
+// 加载更多邮件
+async function loadMoreEmails() {
+    if (isLoadingMore || !hasMoreEmails) return;
 
-            currentFolder = folder;
+    isLoadingMore = true;
+    currentSkip += 20; // 每页20封
 
-            // 更新按钮状态
-            document.querySelectorAll('.email-tab').forEach(tab => {
-                tab.classList.toggle('active', tab.dataset.folder === folder);
-            });
+    // 在列表底部显示加载状态
+    const emailList = document.getElementById('emailList');
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading-overlay';
+    loadingDiv.id = 'loadingMore';
+    loadingDiv.innerHTML = `<span class="spinner"></span> ${translateAppTextLocal('加载更多…')}`;
+    emailList.appendChild(loadingDiv);
 
-            const cacheKey = `${currentAccount}_${folder}`;
+    // 禁用按钮
+    const refreshBtn = document.querySelector('.refresh-btn');
+    const folderTabs = document.querySelectorAll('.email-tab');
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+    }
+    folderTabs.forEach(tab => tab.disabled = true);
 
-            // 检查是否有缓存
-            if (emailListCache[cacheKey]) {
-                const cache = emailListCache[cacheKey];
-                currentEmails = cache.emails;
-                hasMoreEmails = cache.has_more;
-                currentSkip = cache.skip;
-                currentMethod = cache.method || 'graph';
+    try {
+        const response = await fetch(
+            `/api/emails/${encodeURIComponent(currentAccount)}?method=${currentMethod}&folder=${currentFolder}&skip=${currentSkip}&top=20`
+        );
+        const data = await response.json();
 
-                // 恢复 UI
-                const methodTag = document.getElementById('methodTag');
-                methodTag.textContent = currentMethod;
-                methodTag.style.display = 'inline';
-                document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
+        if (data.success && data.emails.length > 0) {
+            // 追加新邮件到列表
+            currentEmails = currentEmails.concat(data.emails);
+            hasMoreEmails = data.has_more;
 
-                renderEmailList(currentEmails);
-            } else {
-                // 清空邮件列表，显示提示
-                document.getElementById('emailList').innerHTML = `
+            // 移除加载状态
+            const loadingEl = document.getElementById('loadingMore');
+            if (loadingEl) loadingEl.remove();
+
+            // 重新渲染邮件列表
+            renderEmailList(currentEmails);
+
+            // 更新邮件数量
+            document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
+
+            // 更新缓存
+            if (currentAccount && !isTempEmailGroup) {
+                const cacheKey = `${currentAccount}_${currentFolder}`;
+                if (emailListCache[cacheKey]) {
+                    emailListCache[cacheKey].emails = currentEmails;
+                    emailListCache[cacheKey].has_more = hasMoreEmails;
+                    emailListCache[cacheKey].skip = currentSkip;
+                }
+            }
+        } else {
+            hasMoreEmails = false;
+            // 显示"没有更多邮件"
+            const loadingEl = document.getElementById('loadingMore');
+            if (loadingEl) {
+                loadingEl.innerHTML = `<div style="text-align:center;padding:20px;color:#999;font-size:13px;">${translateAppTextLocal('没有更多邮件了')}</div>`;
+            }
+        }
+    } catch (error) {
+        const loadingEl = document.getElementById('loadingMore');
+        if (loadingEl) loadingEl.remove();
+        showToast(translateAppTextLocal('加载失败'), 'error');
+    } finally {
+        isLoadingMore = false;
+        // 启用按钮
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+        }
+        folderTabs.forEach(tab => tab.disabled = false);
+    }
+}
+
+// 切换文件夹（不触发查询）
+function switchFolder(folder) {
+    if (currentFolder === folder) return;
+
+    currentFolder = folder;
+
+    // 更新按钮状态
+    document.querySelectorAll('.email-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.folder === folder);
+    });
+
+    const cacheKey = `${currentAccount}_${folder}`;
+
+    // 检查是否有缓存
+    if (emailListCache[cacheKey]) {
+        const cache = emailListCache[cacheKey];
+        currentEmails = cache.emails;
+        hasMoreEmails = cache.has_more;
+        currentSkip = cache.skip;
+        currentMethod = cache.method || 'graph';
+
+        // 恢复 UI
+        const methodTag = document.getElementById('methodTag');
+        methodTag.textContent = currentMethod;
+        methodTag.style.display = 'inline';
+        document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
+
+        renderEmailList(currentEmails);
+    } else {
+        // 清空邮件列表，显示提示
+        document.getElementById('emailList').innerHTML = `
                     <div class="empty-state">
                         <span class="empty-icon">📬</span>
                         <p>${translateAppTextLocal(folder === 'inbox' ? '点击"获取邮件"按钮获取收件箱' : '点击"获取邮件"按钮获取垃圾邮件')}</p>
                     </div>
                 `;
-                document.getElementById('emailCount').textContent = '';
-                document.getElementById('methodTag').style.display = 'none';
+        document.getElementById('emailCount').textContent = '';
+        document.getElementById('methodTag').style.display = 'none';
 
-                // 重置分页状态
-                currentEmails = [];
-                currentSkip = 0;
-                hasMoreEmails = true;
-            }
-        }
+        // 重置分页状态
+        currentEmails = [];
+        currentSkip = 0;
+        hasMoreEmails = true;
+    }
+}
 
-        // 选择自定义颜色（颜色选择器）
-        function selectCustomColor(color) {
-            selectedColor = color;
-            document.getElementById('customColorHex').value = color;
-            // 取消预设颜色的选中状态
-            document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-        }
+// 选择自定义颜色（颜色选择器）
+function selectCustomColor(color) {
+    selectedColor = color;
+    document.getElementById('customColorHex').value = color;
+    // 取消预设颜色的选中状态
+    document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+}
 
-        // 选择自定义颜色（十六进制输入）
-        function selectCustomColorHex(value) {
-            // 验证十六进制颜色格式
-            const hexPattern = /^#[0-9A-Fa-f]{6}$/;
-            if (hexPattern.test(value)) {
-                selectedColor = value;
-                document.getElementById('customColorInput').value = value;
-                // 取消预设颜色的选中状态
-                document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-            } else {
-                showToast(translateAppTextLocal('请输入有效的十六进制颜色（如 #FF5500）'), 'error');
-            }
-        }
+// 选择自定义颜色（十六进制输入）
+function selectCustomColorHex(value) {
+    // 验证十六进制颜色格式
+    const hexPattern = /^#[0-9A-Fa-f]{6}$/;
+    if (hexPattern.test(value)) {
+        selectedColor = value;
+        document.getElementById('customColorInput').value = value;
+        // 取消预设颜色的选中状态
+        document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+    } else {
+        showToast(translateAppTextLocal('请输入有效的十六进制颜色（如 #FF5500）'), 'error');
+    }
+}
 
-        // 显示消息提示
-        function showToast(message, type = 'info', errorDetail = null) {
-            let container = document.getElementById('toast-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'toast-container';
-                container.setAttribute('aria-live', 'polite');
-                document.body.appendChild(container);
-            }
+// 显示消息提示
+function showToast(message, type = 'info', errorDetail = null) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.setAttribute('aria-live', 'polite');
+        document.body.appendChild(container);
+    }
 
-            const toast = document.createElement('div');
-            toast.className = 'toast ' + type;
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
 
-            const messageSpan = document.createElement('span');
-            messageSpan.textContent = translateAppTextLocal(message);
-            toast.appendChild(messageSpan);
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = translateAppTextLocal(message);
+    toast.appendChild(messageSpan);
 
-            if (errorDetail && type === 'error') {
-                const detailLink = document.createElement('a');
-                detailLink.href = 'javascript:void(0)';
-                detailLink.textContent = ' ' + translateAppTextLocal('[详情]');
-                detailLink.style.cssText = 'color:var(--clr-danger);text-decoration:underline;margin-left:8px;';
-                detailLink.onclick = function (e) {
-                    e.stopPropagation();
-                    showErrorDetailModal(errorDetail);
-                };
-                toast.appendChild(detailLink);
-            }
+    if (errorDetail && type === 'error') {
+        const detailLink = document.createElement('a');
+        detailLink.href = 'javascript:void(0)';
+        detailLink.textContent = ' ' + translateAppTextLocal('[详情]');
+        detailLink.style.cssText = 'color:var(--clr-danger);text-decoration:underline;margin-left:8px;';
+        detailLink.onclick = function (e) {
+            e.stopPropagation();
+            showErrorDetailModal(errorDetail);
+        };
+        toast.appendChild(detailLink);
+    }
 
-            container.appendChild(toast);
+    container.appendChild(toast);
 
-            const duration = (errorDetail && type === 'error') ? 8000 : 3000;
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateX(30px)';
-                setTimeout(() => toast.remove(), 300);
-            }, duration);
-        }
+    const duration = (errorDetail && type === 'error') ? 8000 : 3000;
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(30px)';
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
 
-        function buildRefreshErrorSuggestions({ accountType, provider, errorMessage }) {
-            const language = getUiLanguage();
-            const normalizedAccountType = String(accountType || 'outlook').trim().toLowerCase();
-            const normalizedProvider = String(provider || 'outlook').trim().toLowerCase();
-            const normalizedErrorMessage = String(errorMessage || '').trim();
-            const looksLikeTokenRefreshError = /aadsts|refresh[_\s-]?token|invalid[_\s-]?grant|expired/i.test(normalizedErrorMessage);
+function buildRefreshErrorSuggestions({ accountType, provider, errorMessage }) {
+    const language = getUiLanguage();
+    const normalizedAccountType = String(accountType || 'outlook').trim().toLowerCase();
+    const normalizedProvider = String(provider || 'outlook').trim().toLowerCase();
+    const normalizedErrorMessage = String(errorMessage || '').trim();
+    const looksLikeTokenRefreshError = /aadsts|refresh[_\s-]?token|invalid[_\s-]?grant|expired/i.test(normalizedErrorMessage);
 
-            if (normalizedAccountType === 'imap') {
-                if (normalizedProvider === 'gmail') {
-                    return language === 'en'
-                        ? [
-                            'Confirm IMAP is enabled and use an app password instead of your normal account password.',
-                            'If this looks like an old Outlook token-refresh error, switch the account to IMAP credentials and save again.',
-                            'Re-check the IMAP host, port, and SSL settings before retrying.',
-                        ]
-                        : [
-                            '请确认 Gmail 已开启 IMAP，并使用应用专用密码而不是普通登录密码。',
-                            '如果这里其实是旧的 Outlook token-refresh error，请把账号切回 IMAP 凭据后重新保存。',
-                            '请重新检查 IMAP 主机、端口和 SSL 配置后再重试。',
-                        ];
-                }
-
-                return language === 'en'
-                    ? [
-                        'Check the IMAP host, port, SSL/TLS, and account password settings.',
-                        'Confirm the mailbox provider allows IMAP login from third-party apps.',
-                        'If this error came from a migrated Outlook account, remove the old token-refresh settings and save the IMAP credentials again.',
-                    ]
-                    : [
-                        '请检查 IMAP 主机、端口、SSL/TLS 和账号密码配置是否正确。',
-                        '请确认当前邮箱服务商允许第三方客户端通过 IMAP 登录。',
-                        '如果这是从旧 Outlook 账号迁移过来的异常，请清理旧的刷新 Token 配置并重新保存 IMAP 凭据。',
-                    ];
-            }
-
-            if (looksLikeTokenRefreshError) {
-                return language === 'en'
-                    ? [
-                        'Check whether the Client ID and Refresh Token are complete and do not contain extra spaces.',
-                        'Use the "Get Refresh Token" flow again to generate a fresh authorization token.',
-                        'Confirm the Microsoft account or tenant permissions have not been revoked or expired.',
-                    ]
-                    : [
-                        '请检查 Client ID 和 Refresh Token 是否填写完整且没有多余空格。',
-                        '请重新使用“获取 Refresh Token”功能生成新的授权凭据。',
-                        '请确认 Microsoft 账号权限未被撤销，且租户策略没有使当前 Token 失效。',
-                    ];
-            }
-
+    if (normalizedAccountType === 'imap') {
+        if (normalizedProvider === 'gmail') {
             return language === 'en'
                 ? [
-                    'Open the account editor and verify the saved Outlook authorization information.',
-                    'Retry the refresh after confirming network, proxy, and Microsoft service availability.',
-                    'If the problem persists, re-authorize the account to obtain a new Refresh Token.',
+                    'Confirm IMAP is enabled and use an app password instead of your normal account password.',
+                    'If this looks like an old Outlook token-refresh error, switch the account to IMAP credentials and save again.',
+                    'Re-check the IMAP host, port, and SSL settings before retrying.',
                 ]
                 : [
-                    '请打开账号编辑弹窗，确认当前保存的 Outlook 授权信息仍然有效。',
-                    '请检查网络、代理和 Microsoft 服务状态后再次尝试刷新。',
-                    '如果问题持续存在，请重新授权该账号并获取新的 Refresh Token。',
+                    '请确认 Gmail 已开启 IMAP，并使用应用专用密码而不是普通登录密码。',
+                    '如果这里其实是旧的 Outlook token-refresh error，请把账号切回 IMAP 凭据后重新保存。',
+                    '请重新检查 IMAP 主机、端口和 SSL 配置后再重试。',
                 ];
         }
 
-        // 显示刷新错误信息
-        function showRefreshError(accountId, errorMessage, accountEmail, accountType = 'outlook', provider = 'outlook') {
-            document.getElementById('refreshErrorModal').classList.add('show');
-            document.getElementById('refreshErrorEmail').textContent = translateAppTextLocal(`账号：${accountEmail || '未知'}`);
-            document.getElementById('refreshErrorMessage').textContent = translateAppTextLocal(errorMessage);
-            const suggestionsEl = document.getElementById('refreshErrorSuggestions');
-            const suggestions = buildRefreshErrorSuggestions({ accountType, provider, errorMessage });
-            if (suggestionsEl) {
-                suggestionsEl.innerHTML = suggestions.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+        return language === 'en'
+            ? [
+                'Check the IMAP host, port, SSL/TLS, and account password settings.',
+                'Confirm the mailbox provider allows IMAP login from third-party apps.',
+                'If this error came from a migrated Outlook account, remove the old token-refresh settings and save the IMAP credentials again.',
+            ]
+            : [
+                '请检查 IMAP 主机、端口、SSL/TLS 和账号密码配置是否正确。',
+                '请确认当前邮箱服务商允许第三方客户端通过 IMAP 登录。',
+                '如果这是从旧 Outlook 账号迁移过来的异常，请清理旧的刷新 Token 配置并重新保存 IMAP 凭据。',
+            ];
+    }
+
+    if (looksLikeTokenRefreshError) {
+        return language === 'en'
+            ? [
+                'Check whether the Client ID and Refresh Token are complete and do not contain extra spaces.',
+                'Use the "Get Refresh Token" flow again to generate a fresh authorization token.',
+                'Confirm the Microsoft account or tenant permissions have not been revoked or expired.',
+            ]
+            : [
+                '请检查 Client ID 和 Refresh Token 是否填写完整且没有多余空格。',
+                '请重新使用“获取 Refresh Token”功能生成新的授权凭据。',
+                '请确认 Microsoft 账号权限未被撤销，且租户策略没有使当前 Token 失效。',
+            ];
+    }
+
+    return language === 'en'
+        ? [
+            'Open the account editor and verify the saved Outlook authorization information.',
+            'Retry the refresh after confirming network, proxy, and Microsoft service availability.',
+            'If the problem persists, re-authorize the account to obtain a new Refresh Token.',
+        ]
+        : [
+            '请打开账号编辑弹窗，确认当前保存的 Outlook 授权信息仍然有效。',
+            '请检查网络、代理和 Microsoft 服务状态后再次尝试刷新。',
+            '如果问题持续存在，请重新授权该账号并获取新的 Refresh Token。',
+        ];
+}
+
+// 显示刷新错误信息
+function showRefreshError(accountId, errorMessage, accountEmail, accountType = 'outlook', provider = 'outlook') {
+    document.getElementById('refreshErrorModal').classList.add('show');
+    document.getElementById('refreshErrorEmail').textContent = translateAppTextLocal(`账号：${accountEmail || '未知'}`);
+    document.getElementById('refreshErrorMessage').textContent = translateAppTextLocal(errorMessage);
+    const suggestionsEl = document.getElementById('refreshErrorSuggestions');
+    const suggestions = buildRefreshErrorSuggestions({ accountType, provider, errorMessage });
+    if (suggestionsEl) {
+        suggestionsEl.innerHTML = suggestions.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    }
+    document.getElementById('editAccountFromErrorBtn').onclick = function () {
+        hideRefreshErrorModal();
+        showEditAccountModal(accountId);
+    };
+}
+
+// 隐藏刷新错误模态框
+function hideRefreshErrorModal() {
+    document.getElementById('refreshErrorModal').classList.remove('show');
+}
+
+// ==================== 统一错误处理相关 ====================
+
+// 显示统一错误详情模态框
+function showErrorDetailModal(error) {
+    document.getElementById('errorDetailModal').classList.add('show');
+    document.getElementById('errorModalUserMessage').textContent = window.resolveApiErrorMessage
+        ? window.resolveApiErrorMessage(error, '发生未知错误', 'Unknown error')
+        : (error.message || '发生未知错误');
+    document.getElementById('errorModalCode').textContent = error.code || '-';
+    document.getElementById('errorModalType').textContent = error.type || '-';
+    document.getElementById('errorModalStatus').textContent = error.status || '-';
+    document.getElementById('errorModalTraceId').textContent = error.trace_id || '-';
+
+    const detailsEl = document.getElementById('errorModalDetails');
+    const detailsContainer = document.getElementById('errorModalDetailsContainer');
+    const toggleBtn = document.getElementById('toggleTraceBtn');
+
+    detailsEl.textContent = error.details || translateAppTextLocal('暂无详细技术堆栈信息');
+
+    // 重置堆栈显示状态
+    detailsContainer.style.display = 'none';
+    toggleBtn.textContent = translateAppTextLocal('显示堆栈/细节');
+}
+
+// 隐藏统一错误详情模态框
+function hideErrorDetailModal() {
+    document.getElementById('errorDetailModal').classList.remove('show');
+}
+
+// 邮件获取失败详情弹框
+function showEmailFetchErrorModal(details) {
+    if (!details) return;
+
+    const methodNames = {
+        'graph': 'Graph API',
+        'imap_new': 'IMAP（新服务器）',
+        'imap_old': 'IMAP（旧服务器）'
+    };
+
+    function translateError(err) {
+        if (!err) return '未知错误';
+        // err 可能是 string 或 object
+        if (typeof err === 'string') return err;
+
+        const code = err.code || '';
+        const details = typeof err.details === 'string' ? err.details : JSON.stringify(err.details || '');
+        const msg = err.message || '';
+
+        // 翻译常见错误
+        if (code === 'GRAPH_TOKEN_EXCEPTION' && details.includes('ProxyError')) {
+            return '代理连接失败：无法连接到代理服务器，请检查代理地址是否正确以及代理是否在运行';
+        }
+        if (code === 'GRAPH_TOKEN_FAILED' || code === 'IMAP_TOKEN_FAILED') {
+            if (details.includes('invalid_grant')) {
+                return 'Token 已失效或权限不足：请重新授权登录或更换 refresh_token';
             }
-            document.getElementById('editAccountFromErrorBtn').onclick = function () {
-                hideRefreshErrorModal();
-                showEditAccountModal(accountId);
-            };
-        }
-
-        // 隐藏刷新错误模态框
-        function hideRefreshErrorModal() {
-            document.getElementById('refreshErrorModal').classList.remove('show');
-        }
-
-        // ==================== 统一错误处理相关 ====================
-
-        // 显示统一错误详情模态框
-        function showErrorDetailModal(error) {
-            document.getElementById('errorDetailModal').classList.add('show');
-            document.getElementById('errorModalUserMessage').textContent = window.resolveApiErrorMessage
-                ? window.resolveApiErrorMessage(error, '发生未知错误', 'Unknown error')
-                : (error.message || '发生未知错误');
-            document.getElementById('errorModalCode').textContent = error.code || '-';
-            document.getElementById('errorModalType').textContent = error.type || '-';
-            document.getElementById('errorModalStatus').textContent = error.status || '-';
-            document.getElementById('errorModalTraceId').textContent = error.trace_id || '-';
-
-            const detailsEl = document.getElementById('errorModalDetails');
-            const detailsContainer = document.getElementById('errorModalDetailsContainer');
-            const toggleBtn = document.getElementById('toggleTraceBtn');
-
-            detailsEl.textContent = error.details || translateAppTextLocal('暂无详细技术堆栈信息');
-
-            // 重置堆栈显示状态
-            detailsContainer.style.display = 'none';
-            toggleBtn.textContent = translateAppTextLocal('显示堆栈/细节');
-        }
-
-        // 隐藏统一错误详情模态框
-        function hideErrorDetailModal() {
-            document.getElementById('errorDetailModal').classList.remove('show');
-        }
-
-        // 邮件获取失败详情弹框
-        function showEmailFetchErrorModal(details) {
-            if (!details) return;
-
-            const methodNames = {
-                'graph': 'Graph API',
-                'imap_new': 'IMAP（新服务器）',
-                'imap_old': 'IMAP（旧服务器）'
-            };
-
-            function translateError(err) {
-                if (!err) return '未知错误';
-                // err 可能是 string 或 object
-                if (typeof err === 'string') return err;
-
-                const code = err.code || '';
-                const details = typeof err.details === 'string' ? err.details : JSON.stringify(err.details || '');
-                const msg = err.message || '';
-
-                // 翻译常见错误
-                if (code === 'GRAPH_TOKEN_EXCEPTION' && details.includes('ProxyError')) {
-                    return '代理连接失败：无法连接到代理服务器，请检查代理地址是否正确以及代理是否在运行';
-                }
-                if (code === 'GRAPH_TOKEN_FAILED' || code === 'IMAP_TOKEN_FAILED') {
-                    if (details.includes('invalid_grant')) {
-                        return 'Token 已失效或权限不足：请重新授权登录或更换 refresh_token';
-                    }
-                    if (details.includes('invalid_client')) {
-                        return 'Client ID 无效：请检查 client_id 配置是否正确';
-                    }
-                    return `令牌获取失败：${msg}`;
-                }
-                if (code === 'EMAIL_FETCH_FAILED') {
-                    return `获取邮件失败：${msg}`;
-                }
-                if (code === 'IMAP_CONNECTION_FAILED') {
-                    return 'IMAP 连接失败：无法连接到邮件服务器';
-                }
-                return msg || details || '未知错误';
+            if (details.includes('invalid_client')) {
+                return 'Client ID 无效：请检查 client_id 配置是否正确';
             }
+            return `令牌获取失败：${msg}`;
+        }
+        if (code === 'EMAIL_FETCH_FAILED') {
+            return `获取邮件失败：${msg}`;
+        }
+        if (code === 'IMAP_CONNECTION_FAILED') {
+            return 'IMAP 连接失败：无法连接到邮件服务器';
+        }
+        return msg || details || '未知错误';
+    }
 
-            let html = '';
-            const methods = ['graph', 'imap_new', 'imap_old'];
-            methods.forEach(method => {
-                const err = details[method];
-                if (err !== undefined) {
-                    const name = methodNames[method] || method;
-                    const reason = translateError(err);
-                    const codeText = (err && typeof err === 'object') ? (err.code || '-') : '-';
-                    html += `
+    let html = '';
+    const methods = ['graph', 'imap_new', 'imap_old'];
+    methods.forEach(method => {
+        const err = details[method];
+        if (err !== undefined) {
+            const name = methodNames[method] || method;
+            const reason = translateError(err);
+            const codeText = (err && typeof err === 'object') ? (err.code || '-') : '-';
+            html += `
                         <div style="background: #fff5f5; border: 1px solid #fde2e2; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px;">
                             <div style="font-weight: 600; color: #dc3545; margin-bottom: 6px; font-size: 14px;">${name}</div>
                             <div style="color: #333; font-size: 13px; line-height: 1.6;">${reason}</div>
                             <div style="color: #999; font-size: 12px; margin-top: 4px;">错误代码: ${codeText}</div>
                         </div>
                     `;
-                }
-            });
-
-            if (!html) {
-                html = '<div style="color:#666;">无详细错误信息</div>';
-            }
-
-            document.getElementById('emailFetchErrorContent').innerHTML = html;
-            document.getElementById('emailFetchErrorModal').classList.add('show');
         }
+    });
 
-        function hideEmailFetchErrorModal() {
-            document.getElementById('emailFetchErrorModal').classList.remove('show');
-        }
+    if (!html) {
+        html = '<div style="color:#666;">无详细错误信息</div>';
+    }
 
-        // 切换堆栈信息的显示/隐藏
-        function toggleStackTrace() {
-            const container = document.getElementById('errorModalDetailsContainer');
-            const btn = document.getElementById('toggleTraceBtn');
+    document.getElementById('emailFetchErrorContent').innerHTML = html;
+    document.getElementById('emailFetchErrorModal').classList.add('show');
+}
 
-            if (container.style.display === 'none') {
-                container.style.display = 'block';
-                btn.textContent = translateAppTextLocal('隐藏堆栈/细节');
-            } else {
-                container.style.display = 'none';
-                btn.textContent = translateAppTextLocal('显示堆栈/细节');
-            }
-        }
+function hideEmailFetchErrorModal() {
+    document.getElementById('emailFetchErrorModal').classList.remove('show');
+}
 
-        // 复制错误详情到剪贴板
-        function copyErrorDetails() {
-            const userMessage = document.getElementById('errorModalUserMessage').textContent;
-            const details = document.getElementById('errorModalDetails').textContent;
-            const code = document.getElementById('errorModalCode').textContent;
-            const type = document.getElementById('errorModalType').textContent;
-            const status = document.getElementById('errorModalStatus').textContent;
-            const traceId = document.getElementById('errorModalTraceId').textContent;
-            const userMessageHeader = translateAppTextLocal('【用户错误信息】');
-            const detailHeader = translateAppTextLocal('【错误详情】');
-            const technicalHeader = translateAppTextLocal('【技术堆栈/细节】');
+// 切换堆栈信息的显示/隐藏
+function toggleStackTrace() {
+    const container = document.getElementById('errorModalDetailsContainer');
+    const btn = document.getElementById('toggleTraceBtn');
 
-            const fullErrorText = `
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.textContent = translateAppTextLocal('隐藏堆栈/细节');
+    } else {
+        container.style.display = 'none';
+        btn.textContent = translateAppTextLocal('显示堆栈/细节');
+    }
+}
+
+// 复制错误详情到剪贴板
+function copyErrorDetails() {
+    const userMessage = document.getElementById('errorModalUserMessage').textContent;
+    const details = document.getElementById('errorModalDetails').textContent;
+    const code = document.getElementById('errorModalCode').textContent;
+    const type = document.getElementById('errorModalType').textContent;
+    const status = document.getElementById('errorModalStatus').textContent;
+    const traceId = document.getElementById('errorModalTraceId').textContent;
+    const userMessageHeader = translateAppTextLocal('【用户错误信息】');
+    const detailHeader = translateAppTextLocal('【错误详情】');
+    const technicalHeader = translateAppTextLocal('【技术堆栈/细节】');
+
+    const fullErrorText = `
 ${userMessageHeader}
 ${userMessage}
 
@@ -1382,768 +1384,768 @@ ${technicalHeader}
 ${details}
             `.trim();
 
-            navigator.clipboard.writeText(fullErrorText).then(() => {
-                showToast(translateAppTextLocal('错误详情已复制'), 'success');
-            }).catch(() => {
-                // 降级方案
-                const textarea = document.createElement('textarea');
-                textarea.value = fullErrorText;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                showToast(translateAppTextLocal('错误详情已复制'), 'success');
-            });
+    navigator.clipboard.writeText(fullErrorText).then(() => {
+        showToast(translateAppTextLocal('错误详情已复制'), 'success');
+    }).catch(() => {
+        // 降级方案
+        const textarea = document.createElement('textarea');
+        textarea.value = fullErrorText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast(translateAppTextLocal('错误详情已复制'), 'success');
+    });
+}
+
+// 统一处理 API 响应错误
+function handleApiError(data, defaultMessage = '请求失败') {
+    if (!data.success) {
+        const error = data.error || data;
+        const userMessage = window.resolveApiErrorMessage
+            ? window.resolveApiErrorMessage(error, defaultMessage, 'Request failed')
+            : (typeof error === 'string' ? translateAppTextLocal(error) : translateAppTextLocal(defaultMessage));
+        showToast(userMessage, 'error', error && typeof error === 'object' ? error : null);
+        return true;
+    }
+    return false;
+}
+
+function escapeJs(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+}
+
+// ==================== 工具函数 ====================
+
+// HTML 转义
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 格式化日期
+function formatDate(dateStr) {
+    return formatUiDateTime(dateStr, { fallback: dateStr || '' });
+}
+
+// ==================== OAuth Refresh Token 相关 ====================
+
+let oauthAuthPopup = null;
+
+window.addEventListener('message', function (event) {
+    if (!event || event.origin !== window.location.origin) {
+        return;
+    }
+
+    const payload = event.data || {};
+    if (payload.type !== 'outlook-oauth-callback') {
+        return;
+    }
+
+    const redirectInput = document.getElementById('redirectUrlInput');
+    if (!redirectInput) {
+        return;
+    }
+
+    if (payload.redirected_url) {
+        redirectInput.value = payload.redirected_url;
+    }
+
+    event.source?.postMessage({ type: 'outlook-oauth-callback-ack' }, event.origin);
+
+    if (payload.error) {
+        showToast(`${translateAppTextLocal('微软授权失败')}: ${payload.error_description || payload.error}`, 'error');
+        return;
+    }
+
+    const passwordInput = document.getElementById('oauthVerifyPassword');
+    showToast(translateAppTextLocal('已自动接收微软授权回跳结果，请确认后换取 Token'), 'success');
+    if (passwordInput && passwordInput.value.trim()) {
+        exchangeToken();
+    }
+});
+
+// 显示获取 Refresh Token 模态框
+async function showGetRefreshTokenModal() {
+    document.getElementById('getRefreshTokenModal').classList.add('show');
+
+    // 重置表单
+    document.getElementById('oauthVerifyPassword').value = '';
+    document.getElementById('oauthClientIdInput').value = '';
+    document.getElementById('oauthRedirectUriInput').value = '';
+    document.getElementById('oauthRedirectUriExample').textContent = '';
+    document.getElementById('oauthRedirectUriWarning').style.display = 'none';
+    document.getElementById('oauthRedirectUriWarning').textContent = '';
+    document.getElementById('redirectUrlInput').value = '';
+    document.getElementById('refreshTokenResult').style.display = 'none';
+    document.getElementById('refreshTokenOutput').value = '';
+
+    // 重置按钮状态
+    const btn = document.getElementById('exchangeTokenBtn');
+    btn.disabled = false;
+    btn.textContent = '换取 Token';
+    btn.style.display = '';
+
+    // 获取授权 URL
+    try {
+        const response = await fetch('/api/oauth/auth-url');
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('authUrlInput').value = data.auth_url;
+            document.getElementById('oauthClientIdInput').value = `client_id：${data.client_id}`;
+            document.getElementById('oauthRedirectUriInput').value = `redirect_uri：${data.redirect_uri}`;
+            document.getElementById('oauthRedirectUriExample').textContent = `${data.redirect_uri}?code=xxxxx&state=<generated-by-system>`;
+            if (data.redirect_uri_warning) {
+                const warningEl = document.getElementById('oauthRedirectUriWarning');
+                warningEl.textContent = data.redirect_uri_warning;
+                warningEl.style.display = 'block';
+            }
+        } else {
+            handleApiError(data, '获取授权链接失败');
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('获取授权链接失败'), 'error');
+    }
+}
 
-        // 统一处理 API 响应错误
-        function handleApiError(data, defaultMessage = '请求失败') {
-            if (!data.success) {
-                const error = data.error || data;
-                const userMessage = window.resolveApiErrorMessage
-                    ? window.resolveApiErrorMessage(error, defaultMessage, 'Request failed')
-                    : (typeof error === 'string' ? translateAppTextLocal(error) : translateAppTextLocal(defaultMessage));
-                showToast(userMessage, 'error', error && typeof error === 'object' ? error : null);
-                return true;
-            }
-            return false;
+// 隐藏获取 Refresh Token 模态框
+function hideGetRefreshTokenModal() {
+    document.getElementById('getRefreshTokenModal').classList.remove('show');
+    if (oauthAuthPopup && !oauthAuthPopup.closed) {
+        oauthAuthPopup.close();
+    }
+    oauthAuthPopup = null;
+}
+
+// 复制授权 URL
+function copyAuthUrl() {
+    const input = document.getElementById('authUrlInput');
+    input.select();
+    document.execCommand('copy');
+    showToast(translateAppTextLocal('授权链接已复制到剪贴板'), 'success');
+}
+
+// 打开授权 URL
+function openAuthUrl() {
+    const url = document.getElementById('authUrlInput').value;
+    if (url) {
+        oauthAuthPopup = window.open(url, 'outlook-oauth-popup', 'width=720,height=860');
+        if (oauthAuthPopup) {
+            showToast(translateAppTextLocal('已在新窗口打开授权页面'), 'info');
+        } else {
+            showToast(translateAppTextLocal('浏览器拦截了授权窗口，请允许弹窗后重试，或复制授权链接手动打开'), 'error');
         }
+    }
+}
 
-        function escapeJs(str) {
-            if (!str) return '';
-            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
-        }
+// 换取 Token
+async function exchangeToken() {
+    const redirectUrl = document.getElementById('redirectUrlInput').value.trim();
+    const password = document.getElementById('oauthVerifyPassword').value;
 
-        // ==================== 工具函数 ====================
+    if (!redirectUrl) {
+        showToast(translateAppTextLocal('请先粘贴授权后的完整 URL'), 'error');
+        return;
+    }
 
-        // HTML 转义
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+    if (!password) {
+        showToast(translateAppTextLocal('请输入当前系统登录密码以完成二次验证'), 'error');
+        document.getElementById('oauthVerifyPassword').focus();
+        return;
+    }
 
-        // 格式化日期
-        function formatDate(dateStr) {
-            return formatUiDateTime(dateStr, { fallback: dateStr || '' });
-        }
+    const btn = document.getElementById('exchangeTokenBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ 换取中...';
 
-        // ==================== OAuth Refresh Token 相关 ====================
-
-        let oauthAuthPopup = null;
-
-        window.addEventListener('message', function (event) {
-            if (!event || event.origin !== window.location.origin) {
-                return;
-            }
-
-            const payload = event.data || {};
-            if (payload.type !== 'outlook-oauth-callback') {
-                return;
-            }
-
-            const redirectInput = document.getElementById('redirectUrlInput');
-            if (!redirectInput) {
-                return;
-            }
-
-            if (payload.redirected_url) {
-                redirectInput.value = payload.redirected_url;
-            }
-
-            event.source?.postMessage({ type: 'outlook-oauth-callback-ack' }, event.origin);
-
-            if (payload.error) {
-                showToast(`${translateAppTextLocal('微软授权失败')}: ${payload.error_description || payload.error}`, 'error');
-                return;
-            }
-
-            const passwordInput = document.getElementById('oauthVerifyPassword');
-            showToast(translateAppTextLocal('已自动接收微软授权回跳结果，请确认后换取 Token'), 'success');
-            if (passwordInput && passwordInput.value.trim()) {
-                exchangeToken();
-            }
+    try {
+        const verifyResponse = await fetch('/api/export/verify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                password
+            })
         });
+        const verifyData = await verifyResponse.json();
 
-        // 显示获取 Refresh Token 模态框
-        async function showGetRefreshTokenModal() {
-            document.getElementById('getRefreshTokenModal').classList.add('show');
-
-            // 重置表单
-            document.getElementById('oauthVerifyPassword').value = '';
-            document.getElementById('oauthClientIdInput').value = '';
-            document.getElementById('oauthRedirectUriInput').value = '';
-            document.getElementById('oauthRedirectUriExample').textContent = '';
-            document.getElementById('oauthRedirectUriWarning').style.display = 'none';
-            document.getElementById('oauthRedirectUriWarning').textContent = '';
-            document.getElementById('redirectUrlInput').value = '';
-            document.getElementById('refreshTokenResult').style.display = 'none';
-            document.getElementById('refreshTokenOutput').value = '';
-
-            // 重置按钮状态
-            const btn = document.getElementById('exchangeTokenBtn');
+        if (!verifyData.success) {
+            handleApiError(verifyData, '二次验证失败');
+            if (verifyData.need_verify) {
+                document.getElementById('oauthVerifyPassword').focus();
+            }
             btn.disabled = false;
             btn.textContent = '换取 Token';
-            btn.style.display = '';
-
-            // 获取授权 URL
-            try {
-                const response = await fetch('/api/oauth/auth-url');
-                const data = await response.json();
-
-                if (data.success) {
-                    document.getElementById('authUrlInput').value = data.auth_url;
-                    document.getElementById('oauthClientIdInput').value = `client_id：${data.client_id}`;
-                    document.getElementById('oauthRedirectUriInput').value = `redirect_uri：${data.redirect_uri}`;
-                    document.getElementById('oauthRedirectUriExample').textContent = `${data.redirect_uri}?code=xxxxx&state=<generated-by-system>`;
-                    if (data.redirect_uri_warning) {
-                        const warningEl = document.getElementById('oauthRedirectUriWarning');
-                        warningEl.textContent = data.redirect_uri_warning;
-                        warningEl.style.display = 'block';
-                    }
-                } else {
-                    handleApiError(data, '获取授权链接失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('获取授权链接失败'), 'error');
-            }
+            return;
         }
 
-        // 隐藏获取 Refresh Token 模态框
-        function hideGetRefreshTokenModal() {
-            document.getElementById('getRefreshTokenModal').classList.remove('show');
-            if (oauthAuthPopup && !oauthAuthPopup.closed) {
-                oauthAuthPopup.close();
-            }
-            oauthAuthPopup = null;
-        }
+        const response = await fetch('/api/oauth/exchange-token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                redirected_url: redirectUrl,
+                verify_token: verifyData.verify_token
+            })
+        });
 
-        // 复制授权 URL
-        function copyAuthUrl() {
-            const input = document.getElementById('authUrlInput');
-            input.select();
-            document.execCommand('copy');
-            showToast(translateAppTextLocal('授权链接已复制到剪贴板'), 'success');
-        }
+        const data = await response.json();
 
-        // 打开授权 URL
-        function openAuthUrl() {
-            const url = document.getElementById('authUrlInput').value;
-            if (url) {
-                oauthAuthPopup = window.open(url, 'outlook-oauth-popup', 'width=720,height=860');
-                if (oauthAuthPopup) {
-                    showToast(translateAppTextLocal('已在新窗口打开授权页面'), 'info');
-                } else {
-                    showToast(translateAppTextLocal('浏览器拦截了授权窗口，请允许弹窗后重试，或复制授权链接手动打开'), 'error');
-                }
-            }
-        }
+        if (data.success) {
+            btn.disabled = false;
+            btn.textContent = '换取 Token';
 
-        // 换取 Token
-        async function exchangeToken() {
-            const redirectUrl = document.getElementById('redirectUrlInput').value.trim();
-            const password = document.getElementById('oauthVerifyPassword').value;
+            // 关闭 Token 弹窗，打开添加账号弹窗并预填充
+            hideGetRefreshTokenModal();
+            showAddAccountModal();
 
-            if (!redirectUrl) {
-                showToast(translateAppTextLocal('请先粘贴授权后的完整 URL'), 'error');
-                return;
+            const inputEl = document.getElementById('accountInput');
+            if (inputEl) {
+                inputEl.value = `your@outlook.com----yourpassword----${data.client_id}----${data.refresh_token}`;
+                inputEl.select();
             }
 
-            if (!password) {
-                showToast(translateAppTextLocal('请输入当前系统登录密码以完成二次验证'), 'error');
+            showToast(translateAppTextLocal('✅ Token 获取成功！请将邮箱和密码替换后点导入'), 'success');
+        } else {
+            handleApiError(data, '换取 Token 失败');
+            if (data.need_verify) {
                 document.getElementById('oauthVerifyPassword').focus();
-                return;
             }
+            btn.disabled = false;
+            btn.textContent = '换取 Token';
+        }
+    } catch (error) {
+        showToast(`${translateAppTextLocal('换取 Token 失败')}: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = '换取 Token';
+    }
+}
 
-            const btn = document.getElementById('exchangeTokenBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ 换取中...';
+// ==================== 设置相关 ====================
 
-            try {
-                const verifyResponse = await fetch('/api/export/verify', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        password
-                    })
-                });
-                const verifyData = await verifyResponse.json();
+// 显示设置模态框
+async function showSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+    await loadSettings();
+}
 
-                if (!verifyData.success) {
-                    handleApiError(verifyData, '二次验证失败');
-                    if (verifyData.need_verify) {
-                        document.getElementById('oauthVerifyPassword').focus();
-                    }
-                    btn.disabled = false;
-                    btn.textContent = '换取 Token';
-                    return;
-                }
+// 隐藏设置模态框
+function hideSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+    // 清空密码输入框
+    document.getElementById('settingsPassword').value = '';
+}
 
-                const response = await fetch('/api/oauth/exchange-token', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        redirected_url: redirectUrl,
-                        verify_token: verifyData.verify_token
-                    })
-                });
+function buildExternalApiKeysEditorItems(items) {
+    if (!Array.isArray(items)) return [];
 
-                const data = await response.json();
-
-                if (data.success) {
-                    btn.disabled = false;
-                    btn.textContent = '换取 Token';
-
-                    // 关闭 Token 弹窗，打开添加账号弹窗并预填充
-                    hideGetRefreshTokenModal();
-                    showAddAccountModal();
-
-                    const inputEl = document.getElementById('accountInput');
-                    if (inputEl) {
-                        inputEl.value = `your@outlook.com----yourpassword----${data.client_id}----${data.refresh_token}`;
-                        inputEl.select();
-                    }
-
-                    showToast(translateAppTextLocal('✅ Token 获取成功！请将邮箱和密码替换后点导入'), 'success');
-                } else {
-                    handleApiError(data, '换取 Token 失败');
-                    if (data.need_verify) {
-                        document.getElementById('oauthVerifyPassword').focus();
-                    }
-                    btn.disabled = false;
-                    btn.textContent = '换取 Token';
-                }
-            } catch (error) {
-                showToast(`${translateAppTextLocal('换取 Token 失败')}: ${error.message}`, 'error');
-                btn.disabled = false;
-                btn.textContent = '换取 Token';
-            }
+    return items.map((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            throw new Error(`第 ${index + 1} 项必须是对象`);
         }
 
-        // ==================== 设置相关 ====================
+        const normalized = {
+            name: item.name || '',
+            api_key: item.api_key || item.api_key_masked || '',
+            enabled: !(item.enabled === false || item.enabled === 'false' || item.enabled === 0 || item.enabled === '0'),
+            pool_access: item.pool_access === true || item.pool_access === 'true' || item.pool_access === 1 || item.pool_access === '1',
+            allowed_emails: Array.isArray(item.allowed_emails) ? item.allowed_emails : []
+        };
 
-        // 显示设置模态框
-        async function showSettingsModal() {
-            document.getElementById('settingsModal').classList.add('show');
-            await loadSettings();
+        if (item.id !== undefined && item.id !== null && item.id !== '') {
+            normalized.id = item.id;
         }
 
-        // 隐藏设置模态框
-        function hideSettingsModal() {
-            document.getElementById('settingsModal').classList.remove('show');
-            // 清空密码输入框
+        return normalized;
+    });
+}
+
+function setExternalApiKeysEditor(items) {
+    const editorEl = document.getElementById('settingsExternalApiKeysJson');
+    if (!editorEl) return;
+
+    const normalized = buildExternalApiKeysEditorItems(items);
+    const prettyValue = normalized.length ? JSON.stringify(normalized, null, 2) : '';
+    editorEl.value = prettyValue;
+    editorEl.dataset.originalCanonical = JSON.stringify(normalized);
+
+    const hintEl = document.getElementById('externalApiKeysJsonHint');
+    if (!hintEl) return;
+
+    if (normalized.length > 0) {
+        hintEl.textContent = `当前已配置 ${normalized.length} 个多 Key。保留已有脱敏 api_key 表示不修改该 Key；清空后保存表示清空全部多 Key。`;
+    } else {
+        hintEl.textContent = '用于按调用方维护多个 Key、邮箱范围授权和启停状态。保留已有脱敏 api_key 表示不修改该 Key；清空后保存表示清空全部多 Key。';
+    }
+}
+
+// 加载设置
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+
+        if (data.success) {
+            // 密码不回显
             document.getElementById('settingsPassword').value = '';
-        }
 
-        function buildExternalApiKeysEditorItems(items) {
-            if (!Array.isArray(items)) return [];
-
-            return items.map((item, index) => {
-                if (!item || typeof item !== 'object' || Array.isArray(item)) {
-                    throw new Error(`第 ${index + 1} 项必须是对象`);
-                }
-
-                const normalized = {
-                    name: item.name || '',
-                    api_key: item.api_key || item.api_key_masked || '',
-                    enabled: !(item.enabled === false || item.enabled === 'false' || item.enabled === 0 || item.enabled === '0'),
-                    pool_access: item.pool_access === true || item.pool_access === 'true' || item.pool_access === 1 || item.pool_access === '1',
-                    allowed_emails: Array.isArray(item.allowed_emails) ? item.allowed_emails : []
-                };
-
-                if (item.id !== undefined && item.id !== null && item.id !== '') {
-                    normalized.id = item.id;
-                }
-
-                return normalized;
-            });
-        }
-
-        function setExternalApiKeysEditor(items) {
-            const editorEl = document.getElementById('settingsExternalApiKeysJson');
-            if (!editorEl) return;
-
-            const normalized = buildExternalApiKeysEditorItems(items);
-            const prettyValue = normalized.length ? JSON.stringify(normalized, null, 2) : '';
-            editorEl.value = prettyValue;
-            editorEl.dataset.originalCanonical = JSON.stringify(normalized);
-
-            const hintEl = document.getElementById('externalApiKeysJsonHint');
-            if (!hintEl) return;
-
-            if (normalized.length > 0) {
-                hintEl.textContent = `当前已配置 ${normalized.length} 个多 Key。保留已有脱敏 api_key 表示不修改该 Key；清空后保存表示清空全部多 Key。`;
-            } else {
-                hintEl.textContent = '用于按调用方维护多个 Key、邮箱范围授权和启停状态。保留已有脱敏 api_key 表示不修改该 Key；清空后保存表示清空全部多 Key。';
-            }
-        }
-
-        // 加载设置
-        async function loadSettings() {
-            try {
-                const response = await fetch('/api/settings');
-                const data = await response.json();
-
-                if (data.success) {
-                    // 密码不回显
-                    document.getElementById('settingsPassword').value = '';
-
-                    // GPTMail API Key（仅脱敏展示，避免回填明文）
-                    const gptmailApiKeyEl = document.getElementById('settingsApiKey');
-                    if (gptmailApiKeyEl) {
-                        const maskedValue = data.settings.gptmail_api_key_masked || '';
-                        gptmailApiKeyEl.value = maskedValue;
-                        gptmailApiKeyEl.dataset.maskedValue = maskedValue;
-                        gptmailApiKeyEl.dataset.isSet = data.settings.gptmail_api_key_set ? 'true' : 'false';
-                    }
-
-                    // 对外开放 API Key（仅脱敏展示，避免回填明文）
-                    const externalApiKeyEl = document.getElementById('settingsExternalApiKey');
-                    if (externalApiKeyEl) {
-                        const maskedValue = data.settings.external_api_key_masked || '';
-                        externalApiKeyEl.value = maskedValue;
-                        externalApiKeyEl.dataset.maskedValue = maskedValue;
-                        externalApiKeyEl.dataset.isSet = data.settings.external_api_key_set ? 'true' : 'false';
-                    }
-
-                    const externalHintEl = document.getElementById('externalApiKeyHint');
-                    if (externalHintEl) {
-                        if (data.settings.external_api_key_set) {
-                            externalHintEl.textContent = translateAppTextLocal(`已设置：${data.settings.external_api_key_masked || ''}`);
-                        } else {
-                            externalHintEl.textContent = '未设置（设置后可通过 /api/external/* 对外开放接口读取邮件与验证码）';
-                        }
-                    }
-
-                    setExternalApiKeysEditor(data.settings.external_api_keys || []);
-
-                    // P1：公网安全配置
-                    const publicModeEl = document.getElementById('externalApiPublicMode');
-                    if (publicModeEl) publicModeEl.checked = data.settings.external_api_public_mode === true;
-
-                    const ipWhitelistEl = document.getElementById('externalApiIpWhitelist');
-                    if (ipWhitelistEl) {
-                        const wl = data.settings.external_api_ip_whitelist;
-                        ipWhitelistEl.value = Array.isArray(wl) ? wl.join('\n') : '';
-                    }
-
-                    const rateLimitEl = document.getElementById('externalApiRateLimit');
-                    if (rateLimitEl) rateLimitEl.value = data.settings.external_api_rate_limit_per_minute || 60;
-
-                    const disableRawEl = document.getElementById('externalApiDisableRaw');
-                    if (disableRawEl) disableRawEl.checked = data.settings.external_api_disable_raw_content === true;
-
-                    const disableWaitEl = document.getElementById('externalApiDisableWait');
-                    if (disableWaitEl) disableWaitEl.checked = data.settings.external_api_disable_wait_message === true;
-
-                    const poolExternalEnabledEl = document.getElementById('poolExternalEnabled');
-                    if (poolExternalEnabledEl) poolExternalEnabledEl.checked = data.settings.pool_external_enabled === true;
-
-                    const disablePoolClaimRandomEl = document.getElementById('externalApiDisablePoolClaimRandom');
-                    if (disablePoolClaimRandomEl) disablePoolClaimRandomEl.checked = data.settings.external_api_disable_pool_claim_random === true;
-
-                    const disablePoolClaimReleaseEl = document.getElementById('externalApiDisablePoolClaimRelease');
-                    if (disablePoolClaimReleaseEl) disablePoolClaimReleaseEl.checked = data.settings.external_api_disable_pool_claim_release === true;
-
-                    const disablePoolClaimCompleteEl = document.getElementById('externalApiDisablePoolClaimComplete');
-                    if (disablePoolClaimCompleteEl) disablePoolClaimCompleteEl.checked = data.settings.external_api_disable_pool_claim_complete === true;
-
-                    const disablePoolStatsEl = document.getElementById('externalApiDisablePoolStats');
-                    if (disablePoolStatsEl) disablePoolStatsEl.checked = data.settings.external_api_disable_pool_stats === true;
-
-                    // 加载刷新配置
-                    document.getElementById('refreshIntervalDays').value = data.settings.refresh_interval_days || '30';
-                    document.getElementById('refreshDelaySeconds').value = data.settings.refresh_delay_seconds || '5';
-                    document.getElementById('refreshCron').value = data.settings.refresh_cron || '0 2 * * *';
-
-                    // 设置定时刷新开关
-                    const enableScheduled = data.settings.enable_scheduled_refresh !== 'false';
-                    document.getElementById('enableScheduledRefresh').checked = enableScheduled;
-
-                    // 设置刷新策略单选框
-                    const useCron = data.settings.use_cron_schedule === 'true';
-                    document.querySelector('input[name="refreshStrategy"][value="' + (useCron ? 'cron' : 'days') + '"]').checked = true;
-                    toggleRefreshStrategy();
-
-                    // 加载轮询设置（后端返回 boolean，兼容处理）
-                    const enablePolling = isAutoPollingEnabledSetting(data.settings.enable_auto_polling);
-                    document.getElementById('enableAutoPolling').checked = enablePolling;
-                    document.getElementById('pollingInterval').value = String(parseIntegerSetting(data.settings.polling_interval, 10));
-                    document.getElementById('pollingCount').value = String(parseIntegerSetting(data.settings.polling_count, 5));
-
-                    // 加载 Telegram 推送设置
-                    const tgToken = document.getElementById('telegramBotToken');
-                    const tgChat = document.getElementById('telegramChatId');
-                    const tgPoll = document.getElementById('telegramPollInterval');
-                    const emailEnabled = document.getElementById('emailNotificationEnabled');
-                    const emailRecipient = document.getElementById('emailNotificationRecipient');
-                    if (tgToken) tgToken.value = data.telegram_bot_token || '';
-                    if (tgChat) tgChat.value = data.telegram_chat_id || '';
-                    if (tgPoll) tgPoll.value = String(parseIntegerSetting(data.telegram_poll_interval, 600));
-                    if (emailEnabled) emailEnabled.checked = !!data.settings.email_notification_enabled;
-                    if (emailRecipient) emailRecipient.value = data.settings.email_notification_recipient || '';
-                }
-            } catch (error) {
-                console.error('loadSettings error:', error);
-                showToast(translateAppTextLocal('加载设置失败'), 'error');
-            }
-        }
-
-        // 切换刷新策略
-        function toggleRefreshStrategy() {
-            const strategy = document.querySelector('input[name="refreshStrategy"]:checked').value;
-            document.getElementById('daysStrategyContainer').style.display = strategy === 'days' ? 'block' : 'none';
-            document.getElementById('cronStrategyContainer').style.display = strategy === 'cron' ? 'block' : 'none';
-        }
-
-        // 选择 Cron 样例
-        async function selectCronExample(cronExpr) {
-            document.getElementById('refreshCron').value = cronExpr;
-            await validateCronExpression();
-        }
-
-        // 验证 Cron 表达式
-        async function validateCronExpression() {
-            const cronExpr = document.getElementById('refreshCron').value.trim();
-            const resultEl = document.getElementById('cronValidationResult');
-
-            if (!cronExpr) {
-                resultEl.innerHTML = '';
-                return;
+            // GPTMail API Key（仅脱敏展示，避免回填明文）
+            const gptmailApiKeyEl = document.getElementById('settingsApiKey');
+            if (gptmailApiKeyEl) {
+                const maskedValue = data.settings.gptmail_api_key_masked || '';
+                gptmailApiKeyEl.value = maskedValue;
+                gptmailApiKeyEl.dataset.maskedValue = maskedValue;
+                gptmailApiKeyEl.dataset.isSet = data.settings.gptmail_api_key_set ? 'true' : 'false';
             }
 
-            try {
-                const response = await fetch('/api/settings/validate-cron', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cron_expression: cronExpr })
-                });
+            // 对外开放 API Key（仅脱敏展示，避免回填明文）
+            const externalApiKeyEl = document.getElementById('settingsExternalApiKey');
+            if (externalApiKeyEl) {
+                const maskedValue = data.settings.external_api_key_masked || '';
+                externalApiKeyEl.value = maskedValue;
+                externalApiKeyEl.dataset.maskedValue = maskedValue;
+                externalApiKeyEl.dataset.isSet = data.settings.external_api_key_set ? 'true' : 'false';
+            }
 
-                const data = await response.json();
+            const externalHintEl = document.getElementById('externalApiKeyHint');
+            if (externalHintEl) {
+                if (data.settings.external_api_key_set) {
+                    externalHintEl.textContent = translateAppTextLocal(`已设置：${data.settings.external_api_key_masked || ''}`);
+                } else {
+                    externalHintEl.textContent = '未设置（设置后可通过 /api/external/* 对外开放接口读取邮件与验证码）';
+                }
+            }
 
-                if (data.success && data.valid) {
-                    const nextRun = formatUiDateTime(data.next_run, { fallback: data.next_run, includeSeconds: false });
-                    resultEl.innerHTML = `
+            setExternalApiKeysEditor(data.settings.external_api_keys || []);
+
+            // P1：公网安全配置
+            const publicModeEl = document.getElementById('externalApiPublicMode');
+            if (publicModeEl) publicModeEl.checked = data.settings.external_api_public_mode === true;
+
+            const ipWhitelistEl = document.getElementById('externalApiIpWhitelist');
+            if (ipWhitelistEl) {
+                const wl = data.settings.external_api_ip_whitelist;
+                ipWhitelistEl.value = Array.isArray(wl) ? wl.join('\n') : '';
+            }
+
+            const rateLimitEl = document.getElementById('externalApiRateLimit');
+            if (rateLimitEl) rateLimitEl.value = data.settings.external_api_rate_limit_per_minute || 60;
+
+            const disableRawEl = document.getElementById('externalApiDisableRaw');
+            if (disableRawEl) disableRawEl.checked = data.settings.external_api_disable_raw_content === true;
+
+            const disableWaitEl = document.getElementById('externalApiDisableWait');
+            if (disableWaitEl) disableWaitEl.checked = data.settings.external_api_disable_wait_message === true;
+
+            const poolExternalEnabledEl = document.getElementById('poolExternalEnabled');
+            if (poolExternalEnabledEl) poolExternalEnabledEl.checked = data.settings.pool_external_enabled === true;
+
+            const disablePoolClaimRandomEl = document.getElementById('externalApiDisablePoolClaimRandom');
+            if (disablePoolClaimRandomEl) disablePoolClaimRandomEl.checked = data.settings.external_api_disable_pool_claim_random === true;
+
+            const disablePoolClaimReleaseEl = document.getElementById('externalApiDisablePoolClaimRelease');
+            if (disablePoolClaimReleaseEl) disablePoolClaimReleaseEl.checked = data.settings.external_api_disable_pool_claim_release === true;
+
+            const disablePoolClaimCompleteEl = document.getElementById('externalApiDisablePoolClaimComplete');
+            if (disablePoolClaimCompleteEl) disablePoolClaimCompleteEl.checked = data.settings.external_api_disable_pool_claim_complete === true;
+
+            const disablePoolStatsEl = document.getElementById('externalApiDisablePoolStats');
+            if (disablePoolStatsEl) disablePoolStatsEl.checked = data.settings.external_api_disable_pool_stats === true;
+
+            // 加载刷新配置
+            document.getElementById('refreshIntervalDays').value = data.settings.refresh_interval_days || '30';
+            document.getElementById('refreshDelaySeconds').value = data.settings.refresh_delay_seconds || '5';
+            document.getElementById('refreshCron').value = data.settings.refresh_cron || '0 2 * * *';
+
+            // 设置定时刷新开关
+            const enableScheduled = data.settings.enable_scheduled_refresh !== 'false';
+            document.getElementById('enableScheduledRefresh').checked = enableScheduled;
+
+            // 设置刷新策略单选框
+            const useCron = data.settings.use_cron_schedule === 'true';
+            document.querySelector('input[name="refreshStrategy"][value="' + (useCron ? 'cron' : 'days') + '"]').checked = true;
+            toggleRefreshStrategy();
+
+            // 加载轮询设置（后端返回 boolean，兼容处理）
+            const enablePolling = isAutoPollingEnabledSetting(data.settings.enable_auto_polling);
+            document.getElementById('enableAutoPolling').checked = enablePolling;
+            document.getElementById('pollingInterval').value = String(parseIntegerSetting(data.settings.polling_interval, 10));
+            document.getElementById('pollingCount').value = String(parseIntegerSetting(data.settings.polling_count, 5));
+
+            // 加载 Telegram 推送设置
+            const tgToken = document.getElementById('telegramBotToken');
+            const tgChat = document.getElementById('telegramChatId');
+            const tgPoll = document.getElementById('telegramPollInterval');
+            const emailEnabled = document.getElementById('emailNotificationEnabled');
+            const emailRecipient = document.getElementById('emailNotificationRecipient');
+            if (tgToken) tgToken.value = data.telegram_bot_token || '';
+            if (tgChat) tgChat.value = data.telegram_chat_id || '';
+            if (tgPoll) tgPoll.value = String(parseIntegerSetting(data.telegram_poll_interval, 600));
+            if (emailEnabled) emailEnabled.checked = !!data.settings.email_notification_enabled;
+            if (emailRecipient) emailRecipient.value = data.settings.email_notification_recipient || '';
+        }
+    } catch (error) {
+        console.error('loadSettings error:', error);
+        showToast(translateAppTextLocal('加载设置失败'), 'error');
+    }
+}
+
+// 切换刷新策略
+function toggleRefreshStrategy() {
+    const strategy = document.querySelector('input[name="refreshStrategy"]:checked').value;
+    document.getElementById('daysStrategyContainer').style.display = strategy === 'days' ? 'block' : 'none';
+    document.getElementById('cronStrategyContainer').style.display = strategy === 'cron' ? 'block' : 'none';
+}
+
+// 选择 Cron 样例
+async function selectCronExample(cronExpr) {
+    document.getElementById('refreshCron').value = cronExpr;
+    await validateCronExpression();
+}
+
+// 验证 Cron 表达式
+async function validateCronExpression() {
+    const cronExpr = document.getElementById('refreshCron').value.trim();
+    const resultEl = document.getElementById('cronValidationResult');
+
+    if (!cronExpr) {
+        resultEl.innerHTML = '';
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/settings/validate-cron', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cron_expression: cronExpr })
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.valid) {
+            const nextRun = formatUiDateTime(data.next_run, { fallback: data.next_run, includeSeconds: false });
+            resultEl.innerHTML = `
                         <div style="color: #28a745;">
                             ✓ ${translateAppTextLocal('表达式有效')}<br>
                             ${translateAppTextLocal('下次执行:')} ${nextRun}
                         </div>
                     `;
-                } else {
-                    resultEl.innerHTML = `
+        } else {
+            resultEl.innerHTML = `
                         <div style="color: #dc3545;">
                             ✗ ${window.resolveApiErrorMessage ? window.resolveApiErrorMessage(data.error || data, '表达式无效', 'Invalid expression') : (data.error && data.error.message ? data.error.message : (data.error || '表达式无效'))}
                         </div>
                     `;
-                }
-            } catch (error) {
-                resultEl.innerHTML = `
+        }
+    } catch (error) {
+        resultEl.innerHTML = `
                     <div style="color: #dc3545;">
                         ✗ ${translateAppTextLocal('验证失败:')} ${error.message}
                     </div>
                 `;
-            }
-        }
+    }
+}
 
-        // 保存设置
-        async function saveSettings() {
-            const password = document.getElementById('settingsPassword').value;
+// 保存设置
+async function saveSettings() {
+    const password = document.getElementById('settingsPassword').value;
 
-            const gptmailApiKeyEl = document.getElementById('settingsApiKey');
-            const gptmailApiKey = gptmailApiKeyEl ? gptmailApiKeyEl.value.trim() : '';
-            const gptmailApiKeyMasked = gptmailApiKeyEl ? (gptmailApiKeyEl.dataset.maskedValue || '') : '';
-            const gptmailApiKeyIsSet = gptmailApiKeyEl ? gptmailApiKeyEl.dataset.isSet === 'true' : false;
+    const gptmailApiKeyEl = document.getElementById('settingsApiKey');
+    const gptmailApiKey = gptmailApiKeyEl ? gptmailApiKeyEl.value.trim() : '';
+    const gptmailApiKeyMasked = gptmailApiKeyEl ? (gptmailApiKeyEl.dataset.maskedValue || '') : '';
+    const gptmailApiKeyIsSet = gptmailApiKeyEl ? gptmailApiKeyEl.dataset.isSet === 'true' : false;
 
-            const externalApiKeyEl = document.getElementById('settingsExternalApiKey');
-            const externalApiKey = externalApiKeyEl ? externalApiKeyEl.value.trim() : '';
-            const externalApiKeyMasked = externalApiKeyEl ? (externalApiKeyEl.dataset.maskedValue || '') : '';
-            const externalApiKeyIsSet = externalApiKeyEl ? externalApiKeyEl.dataset.isSet === 'true' : false;
-            const externalApiKeysJsonEl = document.getElementById('settingsExternalApiKeysJson');
-            const externalApiKeysRaw = externalApiKeysJsonEl ? externalApiKeysJsonEl.value.trim() : '';
-            const originalExternalApiKeysCanonical = externalApiKeysJsonEl
-                ? (externalApiKeysJsonEl.dataset.originalCanonical || '[]')
-                : '[]';
+    const externalApiKeyEl = document.getElementById('settingsExternalApiKey');
+    const externalApiKey = externalApiKeyEl ? externalApiKeyEl.value.trim() : '';
+    const externalApiKeyMasked = externalApiKeyEl ? (externalApiKeyEl.dataset.maskedValue || '') : '';
+    const externalApiKeyIsSet = externalApiKeyEl ? externalApiKeyEl.dataset.isSet === 'true' : false;
+    const externalApiKeysJsonEl = document.getElementById('settingsExternalApiKeysJson');
+    const externalApiKeysRaw = externalApiKeysJsonEl ? externalApiKeysJsonEl.value.trim() : '';
+    const originalExternalApiKeysCanonical = externalApiKeysJsonEl
+        ? (externalApiKeysJsonEl.dataset.originalCanonical || '[]')
+        : '[]';
 
-            const refreshDays = document.getElementById('refreshIntervalDays').value;
-            const refreshDelay = document.getElementById('refreshDelaySeconds').value;
-            const refreshCron = document.getElementById('refreshCron').value.trim();
-            const strategy = document.querySelector('input[name="refreshStrategy"]:checked').value;
-            const enableScheduled = document.getElementById('enableScheduledRefresh').checked;
+    const refreshDays = document.getElementById('refreshIntervalDays').value;
+    const refreshDelay = document.getElementById('refreshDelaySeconds').value;
+    const refreshCron = document.getElementById('refreshCron').value.trim();
+    const strategy = document.querySelector('input[name="refreshStrategy"]:checked').value;
+    const enableScheduled = document.getElementById('enableScheduledRefresh').checked;
 
-            // 轮询设置
-            const enablePolling = document.getElementById('enableAutoPolling').checked;
-            const pollingInterval = document.getElementById('pollingInterval').value;
-            const pollingCount = document.getElementById('pollingCount').value;
-            const emailNotificationEnabled = document.getElementById('emailNotificationEnabled').checked;
-            const emailNotificationRecipient = document.getElementById('emailNotificationRecipient').value.trim();
+    // 轮询设置
+    const enablePolling = document.getElementById('enableAutoPolling').checked;
+    const pollingInterval = document.getElementById('pollingInterval').value;
+    const pollingCount = document.getElementById('pollingCount').value;
+    const emailNotificationEnabled = document.getElementById('emailNotificationEnabled').checked;
+    const emailNotificationRecipient = document.getElementById('emailNotificationRecipient').value.trim();
 
-            const settings = {};
+    const settings = {};
 
-            // 只有输入了密码才更新密码
-            if (password) {
-                settings.login_password = password;
-            }
+    // 只有输入了密码才更新密码
+    if (password) {
+        settings.login_password = password;
+    }
 
-            // GPTMail API Key：仅当用户真实输入时才覆盖（避免把脱敏占位符写回 DB）
-            if (!(gptmailApiKeyIsSet && gptmailApiKey && gptmailApiKey === gptmailApiKeyMasked)) {
-                settings.gptmail_api_key = gptmailApiKey;
-            }
+    // GPTMail API Key：仅当用户真实输入时才覆盖（避免把脱敏占位符写回 DB）
+    if (!(gptmailApiKeyIsSet && gptmailApiKey && gptmailApiKey === gptmailApiKeyMasked)) {
+        settings.gptmail_api_key = gptmailApiKey;
+    }
 
-            // 对外开放 API Key：允许清空（空字符串）
-            if (!(externalApiKeyIsSet && externalApiKey && externalApiKey === externalApiKeyMasked)) {
-                settings.external_api_key = externalApiKey;
-            }
+    // 对外开放 API Key：允许清空（空字符串）
+    if (!(externalApiKeyIsSet && externalApiKey && externalApiKey === externalApiKeyMasked)) {
+        settings.external_api_key = externalApiKey;
+    }
 
-            if (externalApiKeysJsonEl) {
-                if (externalApiKeysRaw) {
-                    let parsedExternalApiKeys;
-                    try {
-                        parsedExternalApiKeys = JSON.parse(externalApiKeysRaw);
-                    } catch (error) {
-                        showToast(translateAppTextLocal('多 Key 配置必须是合法 JSON'), 'error');
-                        return;
-                    }
-
-                    if (!Array.isArray(parsedExternalApiKeys)) {
-                        showToast(translateAppTextLocal('多 Key 配置必须是 JSON 数组'), 'error');
-                        return;
-                    }
-
-                    let normalizedExternalApiKeys;
-                    try {
-                        normalizedExternalApiKeys = buildExternalApiKeysEditorItems(parsedExternalApiKeys);
-                    } catch (error) {
-                        showToast(error.message || '多 Key 配置格式无效', 'error');
-                        return;
-                    }
-
-                    const nextCanonical = JSON.stringify(normalizedExternalApiKeys);
-                    if (nextCanonical !== originalExternalApiKeysCanonical) {
-                        settings.external_api_keys = normalizedExternalApiKeys;
-                    }
-                } else if (originalExternalApiKeysCanonical !== '[]') {
-                    settings.external_api_keys = [];
-                }
-            }
-
-            // P1：公网安全配置
-            const publicModeEl = document.getElementById('externalApiPublicMode');
-            if (publicModeEl) settings.external_api_public_mode = publicModeEl.checked;
-
-            const ipWhitelistEl = document.getElementById('externalApiIpWhitelist');
-            if (ipWhitelistEl) {
-                const lines = ipWhitelistEl.value.trim().split('\n').map(l => l.trim()).filter(l => l);
-                settings.external_api_ip_whitelist = lines;
-            }
-
-            const rateLimitEl = document.getElementById('externalApiRateLimit');
-            if (rateLimitEl) {
-                const rl = parseInt(rateLimitEl.value);
-                if (!isNaN(rl)) settings.external_api_rate_limit_per_minute = rl;
-            }
-
-            const disableRawEl = document.getElementById('externalApiDisableRaw');
-            if (disableRawEl) settings.external_api_disable_raw_content = disableRawEl.checked;
-
-            const disableWaitEl = document.getElementById('externalApiDisableWait');
-            if (disableWaitEl) settings.external_api_disable_wait_message = disableWaitEl.checked;
-
-            const poolExternalEnabledEl = document.getElementById('poolExternalEnabled');
-            if (poolExternalEnabledEl) settings.pool_external_enabled = poolExternalEnabledEl.checked;
-
-            const disablePoolClaimRandomEl = document.getElementById('externalApiDisablePoolClaimRandom');
-            if (disablePoolClaimRandomEl) settings.external_api_disable_pool_claim_random = disablePoolClaimRandomEl.checked;
-
-            const disablePoolClaimReleaseEl = document.getElementById('externalApiDisablePoolClaimRelease');
-            if (disablePoolClaimReleaseEl) settings.external_api_disable_pool_claim_release = disablePoolClaimReleaseEl.checked;
-
-            const disablePoolClaimCompleteEl = document.getElementById('externalApiDisablePoolClaimComplete');
-            if (disablePoolClaimCompleteEl) settings.external_api_disable_pool_claim_complete = disablePoolClaimCompleteEl.checked;
-
-            const disablePoolStatsEl = document.getElementById('externalApiDisablePoolStats');
-            if (disablePoolStatsEl) settings.external_api_disable_pool_stats = disablePoolStatsEl.checked;
-
-            // 刷新配置
-            const days = parseInt(refreshDays);
-            const delay = parseInt(refreshDelay);
-
-            if (isNaN(days) || days < 1 || days > 90) {
-                showToast(translateAppTextLocal('刷新周期必须在 1-90 天之间'), 'error');
-                return;
-            }
-
-            if (isNaN(delay) || delay < 0 || delay > 60) {
-                showToast(translateAppTextLocal('刷新间隔必须在 0-60 秒之间'), 'error');
-                return;
-            }
-
-            settings.refresh_interval_days = days;
-            settings.refresh_delay_seconds = delay;
-            settings.use_cron_schedule = strategy === 'cron';
-            settings.enable_scheduled_refresh = enableScheduled;
-
-            if (strategy === 'cron') {
-                if (!refreshCron) {
-                    showToast(translateAppTextLocal('请输入 Cron 表达式'), 'error');
-                    return;
-                }
-                settings.refresh_cron = refreshCron;
-            }
-
-            // 轮询配置验证
-            const pInterval = parseInt(pollingInterval);
-            const pCount = parseInt(pollingCount);
-
-            if (isNaN(pInterval) || pInterval < 5 || pInterval > 300) {
-                showToast(translateAppTextLocal('轮询间隔必须在 5-300 秒之间'), 'error');
-                return;
-            }
-
-            // 0 表示持续轮询，1-100 表示有限次数
-            if (isNaN(pCount) || pCount < 0 || pCount > 100) {
-                showToast(translateAppTextLocal('轮询次数必须在 0-100 次之间（0 表示持续轮询）'), 'error');
-                return;
-            }
-
-            settings.enable_auto_polling = enablePolling;
-            settings.polling_interval = pInterval;
-            settings.polling_count = pCount;
-            settings.email_notification_enabled = emailNotificationEnabled;
-            settings.email_notification_recipient = emailNotificationRecipient;
-
-            // Telegram 推送配置
-            const tgBotTokenEl = document.getElementById('telegramBotToken');
-            const tgChatIdEl = document.getElementById('telegramChatId');
-            const tgPollIntervalEl = document.getElementById('telegramPollInterval');
-            const tgBotToken = tgBotTokenEl ? tgBotTokenEl.value.trim() : '';
-            const tgChatId = tgChatIdEl ? tgChatIdEl.value.trim() : '';
-            const tgPollInterval = tgPollIntervalEl ? parseInt(tgPollIntervalEl.value) : NaN;
-
-            if (tgBotToken) {
-                settings.telegram_bot_token = tgBotToken;
-            }
-            if (tgChatId !== undefined) {
-                settings.telegram_chat_id = tgChatId;
-            }
-            if (!isNaN(tgPollInterval)) {
-                if (tgPollInterval < 10 || tgPollInterval > 86400) {
-                    showToast(translateAppTextLocal('Telegram 轮询间隔必须在 10-86400 秒之间'), 'error');
-                    return;
-                }
-                settings.telegram_poll_interval = tgPollInterval;
-            }
-
+    if (externalApiKeysJsonEl) {
+        if (externalApiKeysRaw) {
+            let parsedExternalApiKeys;
             try {
-                const response = await fetch('/api/settings', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(settings)
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    applyPollingSettings(settings, { restart: true });
-                    showToast(pickApiMessage(data, '设置已保存，重启应用后生效', 'Settings saved successfully'), 'success');
-                    hideSettingsModal();
-                } else {
-                    handleApiError(data, '保存设置失败');
-                }
+                parsedExternalApiKeys = JSON.parse(externalApiKeysRaw);
             } catch (error) {
-                showToast(translateAppTextLocal('保存设置失败'), 'error');
-            }
-        }
-
-        async function testTelegramPush() {
-            const btn = document.getElementById('btnTestTelegram');
-            if (btn) { btn.disabled = true; btn.textContent = translateAppTextLocal('⏳ 发送中…'); }
-            try {
-                const resp = await fetch('/api/settings/telegram-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast(pickApiMessage(data, '测试消息已发送，请检查 Telegram', 'Test message sent successfully. Please check Telegram'), 'success');
-                } else {
-                    handleApiError(data, '发送失败');
-                }
-            } catch (e) {
-                showToast(`${translateAppTextLocal('请求失败')}: ${e.message}`, 'error');
-            } finally {
-                if (btn) { btn.disabled = false; btn.textContent = translateAppTextLocal('📨 发送测试消息'); }
-            }
-        }
-
-        async function testEmailNotification() {
-            const btn = document.getElementById('btnTestEmailNotification');
-            if (btn) { btn.disabled = true; btn.textContent = translateAppTextLocal('⏳ 发送中…'); }
-            try {
-                const resp = await fetch('/api/settings/email-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast(pickApiMessage(data, '测试邮件已提交，请检查收件箱', 'Test email accepted. Please check your inbox'), 'success');
-                } else {
-                    handleApiError(data, '测试邮件发送失败');
-                }
-            } catch (e) {
-                showToast(`${translateAppTextLocal('请求失败')}: ${e.message}`, 'error');
-            } finally {
-                if (btn) { btn.disabled = false; btn.textContent = translateAppTextLocal('📨 发送测试邮件'); }
-            }
-        }
-
-        // ==================== 自动轮询功能 ====================
-
-        // 初始化轮询设置
-        async function initPollingSettings() {
-            try {
-                const response = await fetch('/api/settings');
-                const data = await response.json();
-
-                if (data.success) {
-                    applyPollingSettings(data.settings);
-                }
-            } catch (error) {
-                console.error('初始化轮询设置失败:', error);
-            }
-        }
-
-        // 开始轮询
-        function startPolling() {
-            if (isPolling || !currentAccount) {
-                console.log('[轮询] 无法启动: isPolling=', isPolling, ', currentAccount=', currentAccount);
+                showToast(translateAppTextLocal('多 Key 配置必须是合法 JSON'), 'error');
                 return;
             }
 
-            isPolling = true;
-            pollingCount = 0;
-            pollingErrorCount = 0; // 重置错误计数
+            if (!Array.isArray(parsedExternalApiKeys)) {
+                showToast(translateAppTextLocal('多 Key 配置必须是 JSON 数组'), 'error');
+                return;
+            }
 
-            // 初始化已知邮件ID集合
-            knownEmailIds = new Set(currentEmails.map(email => email.id));
+            let normalizedExternalApiKeys;
+            try {
+                normalizedExternalApiKeys = buildExternalApiKeysEditorItems(parsedExternalApiKeys);
+            } catch (error) {
+                showToast(error.message || '多 Key 配置格式无效', 'error');
+                return;
+            }
 
-            console.log('[轮询] 已启动，间隔:', pollingInterval, '秒，最大次数:', maxPollingCount);
-
-            // 显示轮询状态指示器
-            showPollingStatusIndicator();
-
-            // 立即执行一次
-            pollForNewEmails();
-
-            // 设置定时器
-            pollingTimer = setInterval(pollForNewEmails, pollingInterval * 1000);
+            const nextCanonical = JSON.stringify(normalizedExternalApiKeys);
+            if (nextCanonical !== originalExternalApiKeysCanonical) {
+                settings.external_api_keys = normalizedExternalApiKeys;
+            }
+        } else if (originalExternalApiKeysCanonical !== '[]') {
+            settings.external_api_keys = [];
         }
+    }
 
-        // 显示轮询状态指示器
-        function showPollingStatusIndicator() {
-            let indicator = document.getElementById('pollingStatusIndicator');
-            if (!indicator) {
-                indicator = document.createElement('div');
-                indicator.id = 'pollingStatusIndicator';
-                indicator.style.cssText = `
+    // P1：公网安全配置
+    const publicModeEl = document.getElementById('externalApiPublicMode');
+    if (publicModeEl) settings.external_api_public_mode = publicModeEl.checked;
+
+    const ipWhitelistEl = document.getElementById('externalApiIpWhitelist');
+    if (ipWhitelistEl) {
+        const lines = ipWhitelistEl.value.trim().split('\n').map(l => l.trim()).filter(l => l);
+        settings.external_api_ip_whitelist = lines;
+    }
+
+    const rateLimitEl = document.getElementById('externalApiRateLimit');
+    if (rateLimitEl) {
+        const rl = parseInt(rateLimitEl.value);
+        if (!isNaN(rl)) settings.external_api_rate_limit_per_minute = rl;
+    }
+
+    const disableRawEl = document.getElementById('externalApiDisableRaw');
+    if (disableRawEl) settings.external_api_disable_raw_content = disableRawEl.checked;
+
+    const disableWaitEl = document.getElementById('externalApiDisableWait');
+    if (disableWaitEl) settings.external_api_disable_wait_message = disableWaitEl.checked;
+
+    const poolExternalEnabledEl = document.getElementById('poolExternalEnabled');
+    if (poolExternalEnabledEl) settings.pool_external_enabled = poolExternalEnabledEl.checked;
+
+    const disablePoolClaimRandomEl = document.getElementById('externalApiDisablePoolClaimRandom');
+    if (disablePoolClaimRandomEl) settings.external_api_disable_pool_claim_random = disablePoolClaimRandomEl.checked;
+
+    const disablePoolClaimReleaseEl = document.getElementById('externalApiDisablePoolClaimRelease');
+    if (disablePoolClaimReleaseEl) settings.external_api_disable_pool_claim_release = disablePoolClaimReleaseEl.checked;
+
+    const disablePoolClaimCompleteEl = document.getElementById('externalApiDisablePoolClaimComplete');
+    if (disablePoolClaimCompleteEl) settings.external_api_disable_pool_claim_complete = disablePoolClaimCompleteEl.checked;
+
+    const disablePoolStatsEl = document.getElementById('externalApiDisablePoolStats');
+    if (disablePoolStatsEl) settings.external_api_disable_pool_stats = disablePoolStatsEl.checked;
+
+    // 刷新配置
+    const days = parseInt(refreshDays);
+    const delay = parseInt(refreshDelay);
+
+    if (isNaN(days) || days < 1 || days > 90) {
+        showToast(translateAppTextLocal('刷新周期必须在 1-90 天之间'), 'error');
+        return;
+    }
+
+    if (isNaN(delay) || delay < 0 || delay > 60) {
+        showToast(translateAppTextLocal('刷新间隔必须在 0-60 秒之间'), 'error');
+        return;
+    }
+
+    settings.refresh_interval_days = days;
+    settings.refresh_delay_seconds = delay;
+    settings.use_cron_schedule = strategy === 'cron';
+    settings.enable_scheduled_refresh = enableScheduled;
+
+    if (strategy === 'cron') {
+        if (!refreshCron) {
+            showToast(translateAppTextLocal('请输入 Cron 表达式'), 'error');
+            return;
+        }
+        settings.refresh_cron = refreshCron;
+    }
+
+    // 轮询配置验证
+    const pInterval = parseInt(pollingInterval);
+    const pCount = parseInt(pollingCount);
+
+    if (isNaN(pInterval) || pInterval < 5 || pInterval > 300) {
+        showToast(translateAppTextLocal('轮询间隔必须在 5-300 秒之间'), 'error');
+        return;
+    }
+
+    // 0 表示持续轮询，1-100 表示有限次数
+    if (isNaN(pCount) || pCount < 0 || pCount > 100) {
+        showToast(translateAppTextLocal('轮询次数必须在 0-100 次之间（0 表示持续轮询）'), 'error');
+        return;
+    }
+
+    settings.enable_auto_polling = enablePolling;
+    settings.polling_interval = pInterval;
+    settings.polling_count = pCount;
+    settings.email_notification_enabled = emailNotificationEnabled;
+    settings.email_notification_recipient = emailNotificationRecipient;
+
+    // Telegram 推送配置
+    const tgBotTokenEl = document.getElementById('telegramBotToken');
+    const tgChatIdEl = document.getElementById('telegramChatId');
+    const tgPollIntervalEl = document.getElementById('telegramPollInterval');
+    const tgBotToken = tgBotTokenEl ? tgBotTokenEl.value.trim() : '';
+    const tgChatId = tgChatIdEl ? tgChatIdEl.value.trim() : '';
+    const tgPollInterval = tgPollIntervalEl ? parseInt(tgPollIntervalEl.value) : NaN;
+
+    if (tgBotToken) {
+        settings.telegram_bot_token = tgBotToken;
+    }
+    if (tgChatId !== undefined) {
+        settings.telegram_chat_id = tgChatId;
+    }
+    if (!isNaN(tgPollInterval)) {
+        if (tgPollInterval < 10 || tgPollInterval > 86400) {
+            showToast(translateAppTextLocal('Telegram 轮询间隔必须在 10-86400 秒之间'), 'error');
+            return;
+        }
+        settings.telegram_poll_interval = tgPollInterval;
+    }
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            applyPollingSettings(settings, { restart: true });
+            showToast(pickApiMessage(data, '设置已保存，重启应用后生效', 'Settings saved successfully'), 'success');
+            hideSettingsModal();
+        } else {
+            handleApiError(data, '保存设置失败');
+        }
+    } catch (error) {
+        showToast(translateAppTextLocal('保存设置失败'), 'error');
+    }
+}
+
+async function testTelegramPush() {
+    const btn = document.getElementById('btnTestTelegram');
+    if (btn) { btn.disabled = true; btn.textContent = translateAppTextLocal('⏳ 发送中…'); }
+    try {
+        const resp = await fetch('/api/settings/telegram-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await resp.json();
+        if (data.success) {
+            showToast(pickApiMessage(data, '测试消息已发送，请检查 Telegram', 'Test message sent successfully. Please check Telegram'), 'success');
+        } else {
+            handleApiError(data, '发送失败');
+        }
+    } catch (e) {
+        showToast(`${translateAppTextLocal('请求失败')}: ${e.message}`, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = translateAppTextLocal('📨 发送测试消息'); }
+    }
+}
+
+async function testEmailNotification() {
+    const btn = document.getElementById('btnTestEmailNotification');
+    if (btn) { btn.disabled = true; btn.textContent = translateAppTextLocal('⏳ 发送中…'); }
+    try {
+        const resp = await fetch('/api/settings/email-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await resp.json();
+        if (data.success) {
+            showToast(pickApiMessage(data, '测试邮件已提交，请检查收件箱', 'Test email accepted. Please check your inbox'), 'success');
+        } else {
+            handleApiError(data, '测试邮件发送失败');
+        }
+    } catch (e) {
+        showToast(`${translateAppTextLocal('请求失败')}: ${e.message}`, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = translateAppTextLocal('📨 发送测试邮件'); }
+    }
+}
+
+// ==================== 自动轮询功能 ====================
+
+// 初始化轮询设置
+async function initPollingSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+
+        if (data.success) {
+            applyPollingSettings(data.settings);
+        }
+    } catch (error) {
+        console.error('初始化轮询设置失败:', error);
+    }
+}
+
+// 开始轮询
+function startPolling() {
+    if (isPolling || !currentAccount) {
+        console.log('[轮询] 无法启动: isPolling=', isPolling, ', currentAccount=', currentAccount);
+        return;
+    }
+
+    isPolling = true;
+    pollingCount = 0;
+    pollingErrorCount = 0; // 重置错误计数
+
+    // 初始化已知邮件ID集合
+    knownEmailIds = new Set(currentEmails.map(email => email.id));
+
+    console.log('[轮询] 已启动，间隔:', pollingInterval, '秒，最大次数:', maxPollingCount);
+
+    // 显示轮询状态指示器
+    showPollingStatusIndicator();
+
+    // 立即执行一次
+    pollForNewEmails();
+
+    // 设置定时器
+    pollingTimer = setInterval(pollForNewEmails, pollingInterval * 1000);
+}
+
+// 显示轮询状态指示器
+function showPollingStatusIndicator() {
+    let indicator = document.getElementById('pollingStatusIndicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'pollingStatusIndicator';
+        indicator.style.cssText = `
                     position: fixed;
                     bottom: 24px;
                     right: 24px;
@@ -2160,140 +2162,140 @@ ${details}
                     gap: 8px;
                     cursor: pointer;
                 `;
-                indicator.innerHTML = `<span style="animation: pulse 1.5s infinite;">🔄</span> ${translateAppTextLocal('轮询中')}`;
-                indicator.onclick = () => {
-                    if (confirm('是否停止轮询？')) {
-                        stopPolling(false);
-                    }
-                };
-                document.body.appendChild(indicator);
+        indicator.innerHTML = `<span style="animation: pulse 1.5s infinite;">🔄</span> ${translateAppTextLocal('轮询中')}`;
+        indicator.onclick = () => {
+            if (confirm('是否停止轮询？')) {
+                stopPolling(false);
             }
-            indicator.style.display = 'flex';
+        };
+        document.body.appendChild(indicator);
+    }
+    indicator.style.display = 'flex';
+}
+
+// 隐藏轮询状态指示器
+function hidePollingStatusIndicator() {
+    const indicator = document.getElementById('pollingStatusIndicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
+// 停止轮询
+function stopPolling(silent = false) {
+    console.log('[轮询] 停止轮询, silent=', silent);
+    if (pollingTimer) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+    }
+    isPolling = false;
+    pollingCount = 0;
+    pollingErrorCount = 0;
+    hideNewEmailIndicator();
+    hideAccountNewEmailDot();
+    hidePollingStatusIndicator();
+    // 用户主动停止时显示提示
+    if (!silent) {
+        showToast(translateAppTextLocal('已停止轮询'), 'info');
+    }
+}
+
+// 轮询检查新邮件
+let pollingErrorCount = 0; // 连续错误计数
+const MAX_POLLING_ERRORS = 3; // 最大连续错误次数
+
+async function pollForNewEmails() {
+    if (!currentAccount) {
+        stopPolling(true);
+        return;
+    }
+
+    pollingCount++;
+
+    try {
+        const response = await fetch(`/api/emails/${encodeURIComponent(currentAccount)}?skip=0&top=10&folder=${currentFolder}`);
+        const data = await response.json();
+
+        if (data.success && data.emails) {
+            pollingErrorCount = 0; // 重置错误计数
+            const newEmails = data.emails.filter(email => !knownEmailIds.has(email.id));
+
+            if (newEmails.length > 0) {
+                // 发现新邮件
+                showNewEmailNotification(newEmails);
+
+                // 更新已知邮件ID集合
+                newEmails.forEach(email => knownEmailIds.add(email.id));
+
+                // 更新邮件列表（在现有列表前面插入新邮件）
+                currentEmails = [...newEmails, ...currentEmails];
+                renderEmailList(currentEmails);
+                document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
+
+                // 显示新邮件指示器（账号列表项红点）
+                showAccountNewEmailDot(newEmails.length);
+            }
+        } else {
+            pollingErrorCount++;
         }
+    } catch (error) {
+        console.error('轮询新邮件失败:', error);
+        pollingErrorCount++;
+    }
 
-        // 隐藏轮询状态指示器
-        function hidePollingStatusIndicator() {
-            const indicator = document.getElementById('pollingStatusIndicator');
-            if (indicator) {
-                indicator.style.display = 'none';
-            }
-        }
+    // 连续错误超过阈值，停止轮询并提示
+    if (pollingErrorCount >= MAX_POLLING_ERRORS) {
+        stopPolling(true);
+        showToast(translateAppTextLocal('轮询连续失败，已自动停止'), 'error');
+        return;
+    }
 
-        // 停止轮询
-        function stopPolling(silent = false) {
-            console.log('[轮询] 停止轮询, silent=', silent);
-            if (pollingTimer) {
-                clearInterval(pollingTimer);
-                pollingTimer = null;
-            }
-            isPolling = false;
-            pollingCount = 0;
-            pollingErrorCount = 0;
-            hideNewEmailIndicator();
-            hideAccountNewEmailDot();
-            hidePollingStatusIndicator();
-            // 用户主动停止时显示提示
-            if (!silent) {
-                showToast(translateAppTextLocal('已停止轮询'), 'info');
-            }
-        }
+    // 检查是否达到最大轮询次数（0 表示持续轮询，不检查次数）
+    if (maxPollingCount > 0 && pollingCount >= maxPollingCount) {
+        stopPolling(true);
+    }
+}
 
-        // 轮询检查新邮件
-        let pollingErrorCount = 0; // 连续错误计数
-        const MAX_POLLING_ERRORS = 3; // 最大连续错误次数
+// 显示新邮件通知（包含邮箱地址和邮件主题）
+function showNewEmailNotification(newEmails) {
+    const count = newEmails.length;
+    const firstEmail = newEmails[0];
+    const subject = firstEmail?.subject || translateAppTextLocal('无主题');
+    const language = getUiLanguage();
 
-        async function pollForNewEmails() {
-            if (!currentAccount) {
-                stopPolling(true);
-                return;
-            }
+    // 请求浏览器通知权限
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const title = language === 'en'
+            ? (count === 1 ? `New email - ${currentAccount}` : `New emails (${count}) - ${currentAccount}`)
+            : (count === 1 ? `新邮件 - ${currentAccount}` : `新邮件 (${count}封) - ${currentAccount}`);
+        const body = language === 'en'
+            ? (count === 1 ? subject : `${subject} and ${count} new emails`)
+            : (count === 1 ? subject : `${subject} 等 ${count} 封新邮件`);
+        new Notification(title, {
+            body: body,
+            icon: '/img/ico.png'
+        });
+    } else if ('Notification' in window && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+    }
 
-            pollingCount++;
+    // 显示页面内通知（包含邮箱和主题）
+    const message = language === 'en'
+        ? (count === 1 ? `📬 ${currentAccount}: ${subject}` : `📬 ${currentAccount}: ${subject} and ${count} new emails`)
+        : (count === 1 ? `📬 ${currentAccount}: ${subject}` : `📬 ${currentAccount}: ${subject} 等 ${count} 封新邮件`);
+    showToast(message, 'success');
+}
 
-            try {
-                const response = await fetch(`/api/emails/${encodeURIComponent(currentAccount)}?skip=0&top=10&folder=${currentFolder}`);
-                const data = await response.json();
-
-                if (data.success && data.emails) {
-                    pollingErrorCount = 0; // 重置错误计数
-                    const newEmails = data.emails.filter(email => !knownEmailIds.has(email.id));
-
-                    if (newEmails.length > 0) {
-                        // 发现新邮件
-                        showNewEmailNotification(newEmails);
-
-                        // 更新已知邮件ID集合
-                        newEmails.forEach(email => knownEmailIds.add(email.id));
-
-                        // 更新邮件列表（在现有列表前面插入新邮件）
-                        currentEmails = [...newEmails, ...currentEmails];
-                        renderEmailList(currentEmails);
-                        document.getElementById('emailCount').textContent = `(${currentEmails.length})`;
-
-                        // 显示新邮件指示器（账号列表项红点）
-                        showAccountNewEmailDot(newEmails.length);
-                    }
-                } else {
-                    pollingErrorCount++;
-                }
-            } catch (error) {
-                console.error('轮询新邮件失败:', error);
-                pollingErrorCount++;
-            }
-
-            // 连续错误超过阈值，停止轮询并提示
-            if (pollingErrorCount >= MAX_POLLING_ERRORS) {
-                stopPolling(true);
-                showToast(translateAppTextLocal('轮询连续失败，已自动停止'), 'error');
-                return;
-            }
-
-            // 检查是否达到最大轮询次数（0 表示持续轮询，不检查次数）
-            if (maxPollingCount > 0 && pollingCount >= maxPollingCount) {
-                stopPolling(true);
-            }
-        }
-
-        // 显示新邮件通知（包含邮箱地址和邮件主题）
-        function showNewEmailNotification(newEmails) {
-            const count = newEmails.length;
-            const firstEmail = newEmails[0];
-            const subject = firstEmail?.subject || translateAppTextLocal('无主题');
-            const language = getUiLanguage();
-
-            // 请求浏览器通知权限
-            if ('Notification' in window && Notification.permission === 'granted') {
-                const title = language === 'en'
-                    ? (count === 1 ? `New email - ${currentAccount}` : `New emails (${count}) - ${currentAccount}`)
-                    : (count === 1 ? `新邮件 - ${currentAccount}` : `新邮件 (${count}封) - ${currentAccount}`);
-                const body = language === 'en'
-                    ? (count === 1 ? subject : `${subject} and ${count} new emails`)
-                    : (count === 1 ? subject : `${subject} 等 ${count} 封新邮件`);
-                new Notification(title, {
-                    body: body,
-                    icon: '/img/ico.png'
-                });
-            } else if ('Notification' in window && Notification.permission !== 'denied') {
-                Notification.requestPermission();
-            }
-
-            // 显示页面内通知（包含邮箱和主题）
-            const message = language === 'en'
-                ? (count === 1 ? `📬 ${currentAccount}: ${subject}` : `📬 ${currentAccount}: ${subject} and ${count} new emails`)
-                : (count === 1 ? `📬 ${currentAccount}: ${subject}` : `📬 ${currentAccount}: ${subject} 等 ${count} 封新邮件`);
-            showToast(message, 'success');
-        }
-
-        // 显示账号列表项上的红点
-        function showAccountNewEmailDot(count) {
-            // 在当前选中的账号项上显示红点
-            const activeItem = document.querySelector('.account-card.active');
-            if (activeItem) {
-                let dot = activeItem.querySelector('.new-email-badge');
-                if (!dot) {
-                    dot = document.createElement('span');
-                    dot.className = 'new-email-badge';
-                    dot.style.cssText = `
+// 显示账号列表项上的红点
+function showAccountNewEmailDot(count) {
+    // 在当前选中的账号项上显示红点
+    const activeItem = document.querySelector('.account-card.active');
+    if (activeItem) {
+        let dot = activeItem.querySelector('.new-email-badge');
+        if (!dot) {
+            dot = document.createElement('span');
+            dot.className = 'new-email-badge';
+            dot.style.cssText = `
                         position: absolute;
                         top: 8px;
                         right: 8px;
@@ -2306,30 +2308,30 @@ ${details}
                         min-width: 18px;
                         text-align: center;
                     `;
-                    activeItem.style.position = 'relative';
-                    activeItem.appendChild(dot);
-                }
-                dot.textContent = count;
-                dot.style.display = 'block';
-            }
-
-            // 同时保留右上角指示器（作为备用）
-            showNewEmailIndicator(count);
+            activeItem.style.position = 'relative';
+            activeItem.appendChild(dot);
         }
+        dot.textContent = count;
+        dot.style.display = 'block';
+    }
 
-        // 隐藏账号列表项上的红点
-        function hideAccountNewEmailDot() {
-            const dots = document.querySelectorAll('.new-email-badge');
-            dots.forEach(dot => dot.style.display = 'none');
-        }
+    // 同时保留右上角指示器（作为备用）
+    showNewEmailIndicator(count);
+}
 
-        // 显示新邮件指示器（红点）- 移到右下角
-        function showNewEmailIndicator(count) {
-            let indicator = document.getElementById('newEmailIndicator');
-            if (!indicator) {
-                indicator = document.createElement('div');
-                indicator.id = 'newEmailIndicator';
-                indicator.style.cssText = `
+// 隐藏账号列表项上的红点
+function hideAccountNewEmailDot() {
+    const dots = document.querySelectorAll('.new-email-badge');
+    dots.forEach(dot => dot.style.display = 'none');
+}
+
+// 显示新邮件指示器（红点）- 移到右下角
+function showNewEmailIndicator(count) {
+    let indicator = document.getElementById('newEmailIndicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'newEmailIndicator';
+        indicator.style.cssText = `
                     position: fixed;
                     bottom: 70px;
                     right: 24px;
@@ -2347,20 +2349,20 @@ ${details}
                     gap: 8px;
                     animation: slideIn 0.3s ease;
                 `;
-                indicator.innerHTML = `<span class="new-email-dot"></span> 新邮件 (${count})`;
-                indicator.onclick = () => {
-                    hideNewEmailIndicator();
-                    hideAccountNewEmailDot();
-                    // 滚动到邮件列表顶部
-                    document.getElementById('emailList').scrollTop = 0;
-                };
-                document.body.appendChild(indicator);
+        indicator.innerHTML = `<span class="new-email-dot"></span> 新邮件 (${count})`;
+        indicator.onclick = () => {
+            hideNewEmailIndicator();
+            hideAccountNewEmailDot();
+            // 滚动到邮件列表顶部
+            document.getElementById('emailList').scrollTop = 0;
+        };
+        document.body.appendChild(indicator);
 
-                // 添加动画样式
-                if (!document.getElementById('newEmailIndicatorStyles')) {
-                    const style = document.createElement('style');
-                    style.id = 'newEmailIndicatorStyles';
-                    style.textContent = `
+        // 添加动画样式
+        if (!document.getElementById('newEmailIndicatorStyles')) {
+            const style = document.createElement('style');
+            style.id = 'newEmailIndicatorStyles';
+            style.textContent = `
                         @keyframes slideIn {
                             from { transform: translateX(100%); opacity: 0; }
                             to { transform: translateX(0); opacity: 1; }
@@ -2377,341 +2379,339 @@ ${details}
                             50% { opacity: 0.5; }
                         }
                     `;
-                    document.head.appendChild(style);
-                }
+            document.head.appendChild(style);
+        }
+    } else {
+        indicator.innerHTML = `<span class="new-email-dot"></span> 新邮件 (${count})`;
+        indicator.style.display = 'flex';
+    }
+}
+
+// 隐藏新邮件指示器
+function hideNewEmailIndicator() {
+    const indicator = document.getElementById('newEmailIndicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
+// 切换轮询状态
+function togglePolling() {
+    if (isPolling) {
+        stopPolling();
+    } else {
+        startPolling();
+    }
+}
+
+// ==================== 工具函数 ====================
+
+// 相对时间格式化
+function formatRelativeTime(timestamp) {
+    return formatUiRelativeTime(timestamp, '从未刷新', 'Never refreshed');
+}
+
+// ==================== Token 刷新管理 ====================
+
+// 显示刷新模态框
+async function showRefreshModal() {
+    document.getElementById('refreshModal').classList.add('show');
+    // 加载统计数据
+    await loadRefreshStats();
+    // 自动加载失败列表（如果有失败记录）
+    await autoLoadFailedListIfNeeded();
+}
+
+// 自动加载失败列表（如果有失败记录）
+async function autoLoadFailedListIfNeeded() {
+    try {
+        const response = await fetch('/api/accounts/refresh-logs/failed');
+        const data = await response.json();
+
+        if (data.success && data.logs && data.logs.length > 0) {
+            // 有失败记录，自动显示失败列表
+            showFailedListFromData(data.logs.map(log => ({
+                id: log.account_id,
+                email: log.account_email,
+                error: log.error_message
+            })));
+        }
+    } catch (error) {
+        console.error('自动加载失败列表失败:', error);
+    }
+}
+
+// 隐藏刷新模态框
+function hideRefreshModal() {
+    const modal = document.getElementById('refreshModal');
+    modal.classList.remove('show');
+
+    // 确保所有内容都被隐藏，防止残留
+    const progress = document.getElementById('refreshProgress');
+    if (progress) {
+        progress.style.display = 'none';
+    }
+    const failedList = document.getElementById('failedListContainer');
+    if (failedList) {
+        failedList.style.display = 'none';
+    }
+    const logsContainer = document.getElementById('refreshLogsContainer');
+    if (logsContainer) {
+        logsContainer.style.display = 'none';
+    }
+
+    // 重置按钮状态
+    const refreshAllBtn = document.getElementById('refreshAllBtn');
+    if (refreshAllBtn) {
+        refreshAllBtn.disabled = false;
+        refreshAllBtn.textContent = translateAppTextLocal('🔄 全量刷新');
+    }
+
+    const retryFailedBtn = document.getElementById('retryFailedBtn');
+    if (retryFailedBtn) {
+        retryFailedBtn.disabled = false;
+        retryFailedBtn.textContent = translateAppTextLocal('🔁 重试失败');
+    }
+}
+
+// 加载刷新统计
+async function loadRefreshStats() {
+    try {
+        const response = await fetch('/api/accounts/refresh-stats');
+        const data = await response.json();
+
+        console.log('刷新统计数据:', data);
+
+        if (data.success) {
+            const stats = data.stats;
+
+            // 优先使用保存的本地刷新时间
+            if (lastRefreshTime && lastRefreshTime instanceof Date) {
+                document.getElementById('lastRefreshTime').textContent = formatDateTime(lastRefreshTime.toISOString());
+            } else if (stats.last_refresh_time) {
+                document.getElementById('lastRefreshTime').textContent = formatDateTime(stats.last_refresh_time);
             } else {
-                indicator.innerHTML = `<span class="new-email-dot"></span> 新邮件 (${count})`;
-                indicator.style.display = 'flex';
+                document.getElementById('lastRefreshTime').textContent = '-';
             }
+
+            document.getElementById('totalRefreshCount').textContent = stats.total;
+            document.getElementById('successRefreshCount').textContent = stats.success_count;
+            document.getElementById('failedRefreshCount').textContent = stats.failed_count;
+
+            console.log('统计数据已更新到页面');
         }
+    } catch (error) {
+        console.error('加载刷新统计失败:', error);
+    }
+}
 
-        // 隐藏新邮件指示器
-        function hideNewEmailIndicator() {
-            const indicator = document.getElementById('newEmailIndicator');
-            if (indicator) {
-                indicator.style.display = 'none';
-            }
-        }
+// 全量刷新所有账号
+async function refreshAllAccounts() {
+    const btn = document.getElementById('refreshAllBtn');
+    const progress = document.getElementById('refreshProgress');
+    const progressText = document.getElementById('refreshProgressText');
 
-        // 切换轮询状态
-        function togglePolling() {
-            if (isPolling) {
-                stopPolling();
-            } else {
-                startPolling();
-            }
-        }
+    if (btn.disabled) return;
 
-        // ==================== 工具函数 ====================
+    if (!confirm('确定要刷新所有账号的 Token 吗？')) {
+        return;
+    }
 
-        // 相对时间格式化
-        function formatRelativeTime(timestamp) {
-            return formatUiRelativeTime(timestamp, '从未刷新', 'Never refreshed');
-        }
+    btn.disabled = true;
+    btn.textContent = translateAppTextLocal('刷新中...');
+    progress.style.display = 'block';
+    progressText.innerHTML = translateAppTextLocal('正在初始化...');
 
-        // ==================== Token 刷新管理 ====================
+    try {
+        const eventSource = new EventSource('/api/accounts/trigger-scheduled-refresh?force=true');
+        let totalCount = 0;
+        let successCount = 0;
+        let failedCount = 0;
 
-        // 显示刷新模态框
-        async function showRefreshModal() {
-            document.getElementById('refreshModal').classList.add('show');
-            // 加载统计数据
-            await loadRefreshStats();
-            // 自动加载失败列表（如果有失败记录）
-            await autoLoadFailedListIfNeeded();
-        }
-
-        // 自动加载失败列表（如果有失败记录）
-        async function autoLoadFailedListIfNeeded() {
+        eventSource.onmessage = function (event) {
             try {
-                const response = await fetch('/api/accounts/refresh-logs/failed');
-                const data = await response.json();
+                const data = JSON.parse(event.data);
 
-                if (data.success && data.logs && data.logs.length > 0) {
-                    // 有失败记录，自动显示失败列表
-                    showFailedListFromData(data.logs.map(log => ({
-                        id: log.account_id,
-                        email: log.account_email,
-                        error: log.error_message
-                    })));
-                }
-            } catch (error) {
-                console.error('自动加载失败列表失败:', error);
-            }
-        }
-
-        // 隐藏刷新模态框
-        function hideRefreshModal() {
-            const modal = document.getElementById('refreshModal');
-            modal.classList.remove('show');
-
-            // 确保所有内容都被隐藏，防止残留
-            const progress = document.getElementById('refreshProgress');
-            if (progress) {
-                progress.style.display = 'none';
-            }
-            const failedList = document.getElementById('failedListContainer');
-            if (failedList) {
-                failedList.style.display = 'none';
-            }
-            const logsContainer = document.getElementById('refreshLogsContainer');
-            if (logsContainer) {
-                logsContainer.style.display = 'none';
-            }
-
-            // 重置按钮状态
-            const refreshAllBtn = document.getElementById('refreshAllBtn');
-            if (refreshAllBtn) {
-                refreshAllBtn.disabled = false;
-                refreshAllBtn.textContent = translateAppTextLocal('🔄 全量刷新');
-            }
-
-            const retryFailedBtn = document.getElementById('retryFailedBtn');
-            if (retryFailedBtn) {
-                retryFailedBtn.disabled = false;
-                retryFailedBtn.textContent = translateAppTextLocal('🔁 重试失败');
-            }
-        }
-
-        // 加载刷新统计
-        async function loadRefreshStats() {
-            try {
-                const response = await fetch('/api/accounts/refresh-stats');
-                const data = await response.json();
-
-                console.log('刷新统计数据:', data);
-
-                if (data.success) {
-                    const stats = data.stats;
-
-                    // 优先使用保存的本地刷新时间
-                    if (lastRefreshTime && lastRefreshTime instanceof Date) {
-                        document.getElementById('lastRefreshTime').textContent = formatDateTime(lastRefreshTime.toISOString());
-                    } else if (stats.last_refresh_time) {
-                        document.getElementById('lastRefreshTime').textContent = formatDateTime(stats.last_refresh_time);
-                    } else {
-                        document.getElementById('lastRefreshTime').textContent = '-';
-                    }
-
-                    document.getElementById('totalRefreshCount').textContent = stats.total;
-                    document.getElementById('successRefreshCount').textContent = stats.success_count;
-                    document.getElementById('failedRefreshCount').textContent = stats.failed_count;
-
-                    console.log('统计数据已更新到页面');
-                }
-            } catch (error) {
-                console.error('加载刷新统计失败:', error);
-            }
-        }
-
-        // 全量刷新所有账号
-        async function refreshAllAccounts() {
-            const btn = document.getElementById('refreshAllBtn');
-            const progress = document.getElementById('refreshProgress');
-            const progressText = document.getElementById('refreshProgressText');
-
-            if (btn.disabled) return;
-
-            if (!confirm('确定要刷新所有账号的 Token 吗？')) {
-                return;
-            }
-
-            btn.disabled = true;
-            btn.textContent = translateAppTextLocal('刷新中...');
-            progress.style.display = 'block';
-            progressText.innerHTML = translateAppTextLocal('正在初始化...');
-
-            try {
-                const eventSource = new EventSource('/api/accounts/trigger-scheduled-refresh?force=true');
-                let totalCount = 0;
-                let successCount = 0;
-                let failedCount = 0;
-
-                eventSource.onmessage = function (event) {
-                    try {
-                        const data = JSON.parse(event.data);
-
-                        if (data.type === 'start') {
-                            totalCount = data.total;
-                            const delayInfo = data.delay_seconds > 0 ? `（间隔 ${data.delay_seconds} 秒）` : '';
-                            progressText.innerHTML = `${translateAppTextLocal('总共')} <strong>${totalCount}</strong> ${translateAppTextLocal('个账号')}${delayInfo}，${translateAppTextLocal('准备开始刷新...')}`;
-                            // 初始化统计
-                            document.getElementById('totalRefreshCount').textContent = totalCount;
-                            document.getElementById('successRefreshCount').textContent = '0';
-                            document.getElementById('failedRefreshCount').textContent = '0';
-                        } else if (data.type === 'progress') {
-                            successCount = data.success_count;
-                            failedCount = data.failed_count;
-                            // 实时更新统计
-                            document.getElementById('successRefreshCount').textContent = successCount;
-                            document.getElementById('failedRefreshCount').textContent = failedCount;
-                            progressText.innerHTML = `
+                if (data.type === 'start') {
+                    totalCount = data.total;
+                    const delayInfo = data.delay_seconds > 0 ? `（间隔 ${data.delay_seconds} 秒）` : '';
+                    progressText.innerHTML = `${translateAppTextLocal('总共')} <strong>${totalCount}</strong> ${translateAppTextLocal('个账号')}${delayInfo}，${translateAppTextLocal('准备开始刷新...')}`;
+                    // 初始化统计
+                    document.getElementById('totalRefreshCount').textContent = totalCount;
+                    document.getElementById('successRefreshCount').textContent = '0';
+                    document.getElementById('failedRefreshCount').textContent = '0';
+                } else if (data.type === 'progress') {
+                    successCount = data.success_count;
+                    failedCount = data.failed_count;
+                    // 实时更新统计
+                    document.getElementById('successRefreshCount').textContent = successCount;
+                    document.getElementById('failedRefreshCount').textContent = failedCount;
+                    progressText.innerHTML = `
                                 ${translateAppTextLocal('正在处理')}: <strong>${data.email}</strong><br>
                                 ${translateAppTextLocal('进度')}: <strong>${data.current}/${data.total}</strong> |
                                 ${translateAppTextLocal('成功')}: <strong style="color: #28a745;">${successCount}</strong> |
                                 ${translateAppTextLocal('失败')}: <strong style="color: #dc3545;">${failedCount}</strong>
                             `;
-                        } else if (data.type === 'delay') {
-                            progressText.innerHTML += `<br><span style="color: #999;">${translateAppTextLocal('等待')} ${data.seconds} ${translateAppTextLocal('秒后继续...')}</span>`;
-                        } else if (data.type === 'complete') {
-                            eventSource.close();
-                            progress.style.display = 'none';
-                            btn.disabled = false;
-                            btn.textContent = translateAppTextLocal('🔄 全量刷新');
-
-                            // 直接更新统计数据，使用本地时间
-                            const now = new Date();
-                            lastRefreshTime = now; // 保存刷新时间
-                            document.getElementById('lastRefreshTime').textContent = formatUiRelativeTime(new Date().toISOString(), '刚刚', 'Just now');
-                            document.getElementById('totalRefreshCount').textContent = data.total;
-                            document.getElementById('successRefreshCount').textContent = data.success_count;
-                            document.getElementById('failedRefreshCount').textContent = data.failed_count;
-
-                            showToast(`${
-                                getUiLanguage() === 'en'
-                                    ? `Refresh completed. Success: ${data.success_count}, Failed: ${data.failed_count}`
-                                    : `刷新完成！成功: ${data.success_count}, 失败: ${data.failed_count}`
-                            }`,
-                                data.failed_count > 0 ? 'warning' : 'success');
-
-                            // 如果有失败的，显示失败列表
-                            if (data.failed_count > 0) {
-                                showFailedListFromData(data.failed_list);
-                            }
-
-                            // 刷新账号列表以更新刷新时间
-                            if (currentGroupId) {
-                                loadAccountsByGroup(currentGroupId, true);
-                            }
-                        }
-                    } catch (e) {
-                        console.error('解析进度数据失败:', e);
-                    }
-                };
-
-                eventSource.onerror = function (error) {
-                    console.error('EventSource 错误:', error);
+                } else if (data.type === 'delay') {
+                    progressText.innerHTML += `<br><span style="color: #999;">${translateAppTextLocal('等待')} ${data.seconds} ${translateAppTextLocal('秒后继续...')}</span>`;
+                } else if (data.type === 'complete') {
                     eventSource.close();
                     progress.style.display = 'none';
                     btn.disabled = false;
                     btn.textContent = translateAppTextLocal('🔄 全量刷新');
-                    showToast(translateAppTextLocal('刷新过程中出现错误'), 'error');
-                };
 
-            } catch (error) {
-                progress.style.display = 'none';
-                btn.disabled = false;
-                btn.textContent = translateAppTextLocal('🔄 全量刷新');
-                showToast(translateAppTextLocal('刷新请求失败'), 'error');
-            }
-        }
+                    // 直接更新统计数据，使用本地时间
+                    const now = new Date();
+                    lastRefreshTime = now; // 保存刷新时间
+                    document.getElementById('lastRefreshTime').textContent = formatUiRelativeTime(new Date().toISOString(), '刚刚', 'Just now');
+                    document.getElementById('totalRefreshCount').textContent = data.total;
+                    document.getElementById('successRefreshCount').textContent = data.success_count;
+                    document.getElementById('failedRefreshCount').textContent = data.failed_count;
 
-        // 重试失败的账号
-        async function retryFailedAccounts() {
-            const btn = document.getElementById('retryFailedBtn');
-            const progress = document.getElementById('refreshProgress');
-            const progressText = document.getElementById('refreshProgressText');
-
-            if (btn.disabled) return;
-
-            btn.disabled = true;
-            btn.textContent = translateAppTextLocal('重试中...');
-            progress.style.display = 'block';
-            progressText.textContent = translateAppTextLocal('正在重试失败的账号...');
-
-            try {
-                const response = await fetch('/api/accounts/refresh-failed', {
-                    method: 'POST'
-                });
-                const data = await response.json();
-
-                progress.style.display = 'none';
-                btn.disabled = false;
-                btn.textContent = translateAppTextLocal('🔁 重试失败');
-
-                if (data.success) {
-                    if (data.total === 0) {
-                        showToast(translateAppTextLocal('没有需要重试的失败账号'), 'info');
-                    } else {
-                        showToast(`${
-                            getUiLanguage() === 'en'
-                                ? `Retry completed. Success: ${data.success_count}, Failed: ${data.failed_count}`
-                                : `重试完成！成功: ${data.success_count}, 失败: ${data.failed_count}`
+                    showToast(`${getUiLanguage() === 'en'
+                            ? `Refresh completed. Success: ${data.success_count}, Failed: ${data.failed_count}`
+                            : `刷新完成！成功: ${data.success_count}, 失败: ${data.failed_count}`
                         }`,
-                            data.failed_count > 0 ? 'warning' : 'success');
+                        data.failed_count > 0 ? 'warning' : 'success');
 
-                        // 刷新统计
-                        loadRefreshStats();
-
-                        // 如果还有失败的，显示失败列表
-                        if (data.failed_count > 0) {
-                            showFailedListFromData(data.failed_list);
-                        } else {
-                            hideFailedList();
-                        }
+                    // 如果有失败的，显示失败列表
+                    if (data.failed_count > 0) {
+                        showFailedListFromData(data.failed_list);
                     }
-                } else {
-                    handleApiError(data, '重试失败');
-                }
-            } catch (error) {
-                progress.style.display = 'none';
-                btn.disabled = false;
-                btn.textContent = translateAppTextLocal('🔁 重试失败');
-                showToast(translateAppTextLocal('重试请求失败'), 'error');
-            }
-        }
 
-        // 单个账号重试
-        async function retrySingleAccount(accountId, accountEmail) {
-            try {
-                const response = await fetch(`/api/accounts/${accountId}/retry-refresh`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-
-                if (data.success) {
-                    showToast(
-                        getUiLanguage() === 'en'
-                            ? `${accountEmail} refreshed successfully`
-                            : `${accountEmail} 刷新成功`,
-                        'success'
-                    );
-                    loadRefreshStats();
-
-                    // 刷新失败列表
-                    loadFailedLogs();
-                } else {
-                    handleApiError(data, `${accountEmail} 刷新失败`);
-                }
-            } catch (error) {
-                handleApiError({
-                    success: false,
-                    error: {
-                        message: '刷新请求失败',
-                        message_en: 'Refresh request failed',
-                        details: error.message,
-                        code: 'NETWORK_ERROR',
-                        type: 'Frontend'
+                    // 刷新账号列表以更新刷新时间
+                    if (currentGroupId) {
+                        loadAccountsByGroup(currentGroupId, true);
                     }
-                });
+                }
+            } catch (e) {
+                console.error('解析进度数据失败:', e);
             }
+        };
+
+        eventSource.onerror = function (error) {
+            console.error('EventSource 错误:', error);
+            eventSource.close();
+            progress.style.display = 'none';
+            btn.disabled = false;
+            btn.textContent = translateAppTextLocal('🔄 全量刷新');
+            showToast(translateAppTextLocal('刷新过程中出现错误'), 'error');
+        };
+
+    } catch (error) {
+        progress.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = translateAppTextLocal('🔄 全量刷新');
+        showToast(translateAppTextLocal('刷新请求失败'), 'error');
+    }
+}
+
+// 重试失败的账号
+async function retryFailedAccounts() {
+    const btn = document.getElementById('retryFailedBtn');
+    const progress = document.getElementById('refreshProgress');
+    const progressText = document.getElementById('refreshProgressText');
+
+    if (btn.disabled) return;
+
+    btn.disabled = true;
+    btn.textContent = translateAppTextLocal('重试中...');
+    progress.style.display = 'block';
+    progressText.textContent = translateAppTextLocal('正在重试失败的账号...');
+
+    try {
+        const response = await fetch('/api/accounts/refresh-failed', {
+            method: 'POST'
+        });
+        const data = await response.json();
+
+        progress.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = translateAppTextLocal('🔁 重试失败');
+
+        if (data.success) {
+            if (data.total === 0) {
+                showToast(translateAppTextLocal('没有需要重试的失败账号'), 'info');
+            } else {
+                showToast(`${getUiLanguage() === 'en'
+                        ? `Retry completed. Success: ${data.success_count}, Failed: ${data.failed_count}`
+                        : `重试完成！成功: ${data.success_count}, 失败: ${data.failed_count}`
+                    }`,
+                    data.failed_count > 0 ? 'warning' : 'success');
+
+                // 刷新统计
+                loadRefreshStats();
+
+                // 如果还有失败的，显示失败列表
+                if (data.failed_count > 0) {
+                    showFailedListFromData(data.failed_list);
+                } else {
+                    hideFailedList();
+                }
+            }
+        } else {
+            handleApiError(data, '重试失败');
         }
+    } catch (error) {
+        progress.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = translateAppTextLocal('🔁 重试失败');
+        showToast(translateAppTextLocal('重试请求失败'), 'error');
+    }
+}
 
-        // 显示失败列表（从数据）
-        function showFailedListFromData(failedList) {
-            const container = document.getElementById('failedListContainer');
-            const listEl = document.getElementById('failedList');
+// 单个账号重试
+async function retrySingleAccount(accountId, accountEmail) {
+    try {
+        const response = await fetch(`/api/accounts/${accountId}/retry-refresh`, {
+            method: 'POST'
+        });
+        const data = await response.json();
 
-            // 隐藏其他列表
-            hideRefreshLogs();
+        if (data.success) {
+            showToast(
+                getUiLanguage() === 'en'
+                    ? `${accountEmail} refreshed successfully`
+                    : `${accountEmail} 刷新成功`,
+                'success'
+            );
+            loadRefreshStats();
 
-            if (!failedList || failedList.length === 0) {
-                container.style.display = 'none';
-                return;
+            // 刷新失败列表
+            loadFailedLogs();
+        } else {
+            handleApiError(data, `${accountEmail} 刷新失败`);
+        }
+    } catch (error) {
+        handleApiError({
+            success: false,
+            error: {
+                message: '刷新请求失败',
+                message_en: 'Refresh request failed',
+                details: error.message,
+                code: 'NETWORK_ERROR',
+                type: 'Frontend'
             }
+        });
+    }
+}
 
-            let html = '';
-            failedList.forEach(item => {
-                html += `
+// 显示失败列表（从数据）
+function showFailedListFromData(failedList) {
+    const container = document.getElementById('failedListContainer');
+    const listEl = document.getElementById('failedList');
+
+    // 隐藏其他列表
+    hideRefreshLogs();
+
+    if (!failedList || failedList.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    let html = '';
+    failedList.forEach(item => {
+        html += `
                     <div style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: start;">
                         <div style="flex: 1;">
                             <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(item.email)}</div>
@@ -2722,35 +2722,35 @@ ${details}
                         </button>
                     </div>
                 `;
-            });
+    });
 
-            listEl.innerHTML = html;
-            container.style.display = 'block';
-        }
+    listEl.innerHTML = html;
+    container.style.display = 'block';
+}
 
-        // 隐藏失败列表
-        function hideFailedList() {
-            document.getElementById('failedListContainer').style.display = 'none';
-        }
+// 隐藏失败列表
+function hideFailedList() {
+    document.getElementById('failedListContainer').style.display = 'none';
+}
 
-        // 加载失败日志
-        async function loadFailedLogs() {
-            const container = document.getElementById('failedListContainer');
-            const listEl = document.getElementById('failedList');
+// 加载失败日志
+async function loadFailedLogs() {
+    const container = document.getElementById('failedListContainer');
+    const listEl = document.getElementById('failedList');
 
-            hideRefreshLogs();
+    hideRefreshLogs();
 
-            try {
-                const response = await fetch('/api/accounts/refresh-logs/failed');
-                const data = await response.json();
+    try {
+        const response = await fetch('/api/accounts/refresh-logs/failed');
+        const data = await response.json();
 
-                if (data.success) {
-                    if (data.logs.length === 0) {
-                        listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无失败状态的邮箱</div>';
-                    } else {
-                        let html = '';
-                        data.logs.forEach(log => {
-                            html += `
+        if (data.success) {
+            if (data.logs.length === 0) {
+                listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无失败状态的邮箱</div>';
+            } else {
+                let html = '';
+                data.logs.forEach(log => {
+                    html += `
                                 <div style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: center;">
                                     <div style="flex: 1;">
                                         <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(log.account_email)}</div>
@@ -2762,39 +2762,39 @@ ${details}
                                     </button>
                                 </div>
                             `;
-                        });
-                        listEl.innerHTML = html;
-                    }
-                    container.style.display = 'block';
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('加载失败邮箱列表失败'), 'error');
+                });
+                listEl.innerHTML = html;
             }
+            container.style.display = 'block';
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('加载失败邮箱列表失败'), 'error');
+    }
+}
 
-        // 加载刷新历史
-        async function loadRefreshLogs() {
-            const container = document.getElementById('refreshLogsContainer');
-            const listEl = document.getElementById('refreshLogsList');
+// 加载刷新历史
+async function loadRefreshLogs() {
+    const container = document.getElementById('refreshLogsContainer');
+    const listEl = document.getElementById('refreshLogsList');
 
-            try {
-                const response = await fetch('/api/accounts/refresh-logs?limit=1000');
-                const data = await response.json();
+    try {
+        const response = await fetch('/api/accounts/refresh-logs?limit=1000');
+        const data = await response.json();
 
-                if (data.success) {
-                    if (data.logs.length === 0) {
-                        listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无全量刷新历史</div>';
-                    } else {
-                        listEl.innerHTML = `<div style="padding: 12px; background-color: #f8f9fa; border-bottom: 1px solid #e5e5e5; font-size: 13px; color: #666;">近半年刷新历史（共 ${data.logs.length} 条）</div>`;
-                        let html = '';
-                        data.logs.forEach(log => {
-                            const statusColor = log.status === 'success' ? '#28a745' : '#dc3545';
-                            const statusText = log.status === 'success' ? '成功' : '失败';
-                            const typeText = translateAppTextLocal(log.refresh_type === 'manual' ? '手动' : '自动');
-                            const typeColor = log.refresh_type === 'manual' ? '#007bff' : '#28a745';
-                            const typeBgColor = log.refresh_type === 'manual' ? '#e7f3ff' : '#e8f5e9';
+        if (data.success) {
+            if (data.logs.length === 0) {
+                listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无全量刷新历史</div>';
+            } else {
+                listEl.innerHTML = `<div style="padding: 12px; background-color: #f8f9fa; border-bottom: 1px solid #e5e5e5; font-size: 13px; color: #666;">近半年刷新历史（共 ${data.logs.length} 条）</div>`;
+                let html = '';
+                data.logs.forEach(log => {
+                    const statusColor = log.status === 'success' ? '#28a745' : '#dc3545';
+                    const statusText = log.status === 'success' ? '成功' : '失败';
+                    const typeText = translateAppTextLocal(log.refresh_type === 'manual' ? '手动' : '自动');
+                    const typeColor = log.refresh_type === 'manual' ? '#007bff' : '#28a745';
+                    const typeBgColor = log.refresh_type === 'manual' ? '#e7f3ff' : '#e8f5e9';
 
-                            html += `
+                    html += `
                                 <div style="padding: 14px; border-bottom: 1px solid #e5e5e5; transition: background-color 0.2s;"
                                      onmouseover="this.style.backgroundColor='#f8f9fa'"
                                      onmouseout="this.style.backgroundColor='transparent'">
@@ -2809,47 +2809,47 @@ ${details}
                                     ${log.error_message ? `<div style="font-size: 12px; color: #dc3545; margin-top: 6px; padding: 6px; background-color: #fff5f5; border-radius: 4px;">${escapeHtml(log.error_message)}</div>` : ''}
                                 </div>
                             `;
-                        });
-                        listEl.innerHTML += html;
-                    }
-                    container.style.display = 'block';
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('加载刷新历史失败'), 'error');
+                });
+                listEl.innerHTML += html;
             }
+            container.style.display = 'block';
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('加载刷新历史失败'), 'error');
+    }
+}
 
-        // 隐藏刷新历史
-        function hideRefreshLogs() {
-            document.getElementById('refreshLogsContainer').style.display = 'none';
-        }
+// 隐藏刷新历史
+function hideRefreshLogs() {
+    document.getElementById('refreshLogsContainer').style.display = 'none';
+}
 
-        // ==================== 页面级：刷新日志 ====================
+// ==================== 页面级：刷新日志 ====================
 
-        async function loadRefreshLogPage() {
-            const container = document.getElementById('refreshLogContainer');
-            if (!container) return;
-            container.innerHTML = `<div class="loading-overlay"><span class="spinner"></span> ${translateAppTextLocal('加载中…')}</div>`;
+async function loadRefreshLogPage() {
+    const container = document.getElementById('refreshLogContainer');
+    if (!container) return;
+    container.innerHTML = `<div class="loading-overlay"><span class="spinner"></span> ${translateAppTextLocal('加载中…')}</div>`;
 
-            try {
-                const response = await fetch('/api/accounts/refresh-logs?limit=200');
-                const data = await response.json();
+    try {
+        const response = await fetch('/api/accounts/refresh-logs?limit=200');
+        const data = await response.json();
 
-                if (data.success && data.logs && data.logs.length > 0) {
-                    container.innerHTML = `
+        if (data.success && data.logs && data.logs.length > 0) {
+            container.innerHTML = `
                         <div style="padding:0.6rem 1rem;font-size:0.78rem;color:var(--text-muted);border-bottom:1px solid var(--border-light);">
                             ${translateAppTextLocal(`共 ${data.logs.length} 条记录`)}
                         </div>
                         <div class="dashboard-list-wrap">
                             ${data.logs.map(log => {
-                                const isSuccess = log.status === 'success';
-                                const statusBadge = isSuccess
-                                    ? `<span class="badge" style="background:var(--clr-jade);color:white;">${translateAppTextLocal('成功')}</span>`
-                                    : `<span class="badge" style="background:var(--clr-danger);color:white;">${translateAppTextLocal('失败')}</span>`;
-                                const typeText = translateAppTextLocal(
-                                    log.refresh_type === 'manual' ? '手动' : (log.refresh_type === 'scheduled' ? '定时' : (log.refresh_type || '-'))
-                                );
-                                return `
+                const isSuccess = log.status === 'success';
+                const statusBadge = isSuccess
+                    ? `<span class="badge" style="background:var(--clr-jade);color:white;">${translateAppTextLocal('成功')}</span>`
+                    : `<span class="badge" style="background:var(--clr-danger);color:white;">${translateAppTextLocal('失败')}</span>`;
+                const typeText = translateAppTextLocal(
+                    log.refresh_type === 'manual' ? '手动' : (log.refresh_type === 'scheduled' ? '定时' : (log.refresh_type || '-'))
+                );
+                return `
                                     <div style="padding:0.75rem 1rem;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:0.8rem;">
                                         <div style="flex:1;min-width:0;">
                                             <div style="font-weight:600;font-size:0.85rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(log.account_email || '-')}</div>
@@ -2859,80 +2859,80 @@ ${details}
                                         ${statusBadge}
                                     </div>
                                 `;
-                            }).join('')}
+            }).join('')}
                         </div>
                     `;
-                } else {
-                    container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><p>${translateAppTextLocal('暂无刷新记录')}</p></div>`;
-                }
+        } else {
+            container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><p>${translateAppTextLocal('暂无刷新记录')}</p></div>`;
+        }
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${translateAppTextLocal('加载刷新历史失败')}</p></div>`;
+    }
+}
+
+// ==================== 页面级：审计日志 ====================
+
+function translateAuditDetailValue(value) {
+    if (typeof value === 'string') {
+        return translateAppTextLocal(value);
+    }
+    if (Array.isArray(value)) {
+        return value.map(translateAuditDetailValue);
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, nestedValue]) => [key, translateAuditDetailValue(nestedValue)])
+        );
+    }
+    return value;
+}
+
+function formatAuditDetailText(details) {
+    if (details == null) {
+        return '';
+    }
+    if (typeof details === 'string') {
+        const trimmed = details.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                return JSON.stringify(translateAuditDetailValue(JSON.parse(trimmed)));
             } catch (error) {
-                container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${translateAppTextLocal('加载刷新历史失败')}</p></div>`;
-            }
-        }
-
-        // ==================== 页面级：审计日志 ====================
-
-        function translateAuditDetailValue(value) {
-            if (typeof value === 'string') {
-                return translateAppTextLocal(value);
-            }
-            if (Array.isArray(value)) {
-                return value.map(translateAuditDetailValue);
-            }
-            if (value && typeof value === 'object') {
-                return Object.fromEntries(
-                    Object.entries(value).map(([key, nestedValue]) => [key, translateAuditDetailValue(nestedValue)])
-                );
-            }
-            return value;
-        }
-
-        function formatAuditDetailText(details) {
-            if (details == null) {
-                return '';
-            }
-            if (typeof details === 'string') {
-                const trimmed = details.trim();
-                if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-                    try {
-                        return JSON.stringify(translateAuditDetailValue(JSON.parse(trimmed)));
-                    } catch (error) {
-                        return translateAppTextLocal(details);
-                    }
-                }
                 return translateAppTextLocal(details);
             }
-            if (typeof details === 'object') {
-                try {
-                    return JSON.stringify(translateAuditDetailValue(details));
-                } catch (error) {
-                    return translateAppTextLocal(String(details));
-                }
-            }
+        }
+        return translateAppTextLocal(details);
+    }
+    if (typeof details === 'object') {
+        try {
+            return JSON.stringify(translateAuditDetailValue(details));
+        } catch (error) {
             return translateAppTextLocal(String(details));
         }
+    }
+    return translateAppTextLocal(String(details));
+}
 
-        async function loadAuditLogPage() {
-            const container = document.getElementById('auditLogContainer');
-            if (!container) return;
-            container.innerHTML = `<div class="loading-overlay"><span class="spinner"></span> ${translateAppTextLocal('加载中…')}</div>`;
+async function loadAuditLogPage() {
+    const container = document.getElementById('auditLogContainer');
+    if (!container) return;
+    container.innerHTML = `<div class="loading-overlay"><span class="spinner"></span> ${translateAppTextLocal('加载中…')}</div>`;
 
-            try {
-                const response = await fetch('/api/audit-logs?limit=200');
-                const data = await response.json();
+    try {
+        const response = await fetch('/api/audit-logs?limit=200');
+        const data = await response.json();
 
-                if (data.success && data.logs && data.logs.length > 0) {
-                    container.innerHTML = `
+        if (data.success && data.logs && data.logs.length > 0) {
+            container.innerHTML = `
                         <div style="padding:0.6rem 1rem;font-size:0.78rem;color:var(--text-muted);border-bottom:1px solid var(--border-light);">
                             ${translateAppTextLocal(`共 ${data.total || data.logs.length} 条记录`)}
                         </div>
                         <div class="dashboard-list-wrap">
                             ${data.logs.map(log => {
-                                const actionColor = log.action === 'delete' ? 'var(--clr-danger)' : (log.action === 'create' ? 'var(--clr-jade)' : 'var(--clr-primary)');
-                                const actionLabel = translateAppTextLocal(log.action || '-');
-                                const resourceTypeLabel = translateAppTextLocal(log.resource_type || '-');
-                                const detailText = formatAuditDetailText(log.details);
-                                return `
+                const actionColor = log.action === 'delete' ? 'var(--clr-danger)' : (log.action === 'create' ? 'var(--clr-jade)' : 'var(--clr-primary)');
+                const actionLabel = translateAppTextLocal(log.action || '-');
+                const resourceTypeLabel = translateAppTextLocal(log.resource_type || '-');
+                const detailText = formatAuditDetailText(log.details);
+                return `
                                     <div style="padding:0.75rem 1rem;border-bottom:1px solid var(--border-light);">
                                         <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:4px;">
                                             <span class="badge" style="background:${actionColor};color:white;font-size:0.68rem;">${escapeHtml(actionLabel)}</span>
@@ -2944,127 +2944,127 @@ ${details}
                                         <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">IP: ${escapeHtml(log.user_ip || '-')} ${log.trace_id ? '· trace: ' + escapeHtml(log.trace_id) : ''}</div>
                                     </div>
                                 `;
-                            }).join('')}
+            }).join('')}
                         </div>
                     `;
-                } else {
-                    container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><p>${translateAppTextLocal('暂无审计记录')}</p></div>`;
-                }
-            } catch (error) {
-                container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${translateAppTextLocal('加载审计日志失败')}</p></div>`;
-            }
+        } else {
+            container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><p>${translateAppTextLocal('暂无审计记录')}</p></div>`;
         }
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${translateAppTextLocal('加载审计日志失败')}</p></div>`;
+    }
+}
 
-        // 格式化日期时间
-        function formatDateTime(dateStr) {
-            return formatUiDateTime(dateStr, { fallback: '-' });
+// 格式化日期时间
+function formatDateTime(dateStr) {
+    return formatUiDateTime(dateStr, { fallback: '-' });
+}
+
+// 统一关闭所有模态框的函数 (修复 bug：防止模态框意外残留)
+function closeAllModals() {
+    hideAddGroupModal();
+    hideAddAccountModal();
+    hideEditAccountModal();
+    hideExportModal();
+    hideSettingsModal();
+    hideRefreshModal();
+    hideRefreshErrorModal();
+    hideErrorDetailModal();
+    hideGetRefreshTokenModal();
+    closeFullscreenEmail();
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 键盘快捷键
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        hideAddGroupModal();
+        hideAddAccountModal();
+        hideEditAccountModal();
+        hideExportModal();
+        hideSettingsModal();
+        hideRefreshModal();
+        hideRefreshErrorModal();
+        hideErrorDetailModal();
+        hideGetRefreshTokenModal();
+        closeFullscreenEmail();
+    }
+});
+// ==================== 标签管理 ====================
+
+let allTags = [];
+
+// 显示标签管理模态框
+async function showTagManagementModal() {
+    document.getElementById('tagManagementModal').classList.add('show');
+    await loadTags();
+}
+
+// 隐藏标签管理模态框
+function hideTagManagementModal() {
+    document.getElementById('tagManagementModal').classList.remove('show');
+}
+
+// 加载标签列表
+async function loadTags() {
+    try {
+        const response = await fetch('/api/tags');
+        const data = await response.json();
+        if (data.success) {
+            allTags = data.tags;
+            renderTagList();
+            updateTagFilter();  // Update Filter Dropdown
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('加载标签失败'), 'error');
+    }
+}
 
-        // 统一关闭所有模态框的函数 (修复 bug：防止模态框意外残留)
-        function closeAllModals() {
-            hideAddGroupModal();
-            hideAddAccountModal();
-            hideEditAccountModal();
-            hideExportModal();
-            hideSettingsModal();
-            hideRefreshModal();
-            hideRefreshErrorModal();
-            hideErrorDetailModal();
-            hideGetRefreshTokenModal();
-            closeFullscreenEmail();
-        }
+// 更新标签筛选下拉框
+function updateTagFilter() {
+    const container = document.getElementById('tagFilterContainer');
+    if (!container) return;
 
-        // HTML 转义
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+    if (allTags.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
 
-        // 键盘快捷键
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') {
-                hideAddGroupModal();
-                hideAddAccountModal();
-                hideEditAccountModal();
-                hideExportModal();
-                hideSettingsModal();
-                hideRefreshModal();
-                hideRefreshErrorModal();
-                hideErrorDetailModal();
-                hideGetRefreshTokenModal();
-                closeFullscreenEmail();
-            }
-        });
-        // ==================== 标签管理 ====================
+    container.style.display = 'flex';
 
-        let allTags = [];
-
-        // 显示标签管理模态框
-        async function showTagManagementModal() {
-            document.getElementById('tagManagementModal').classList.add('show');
-            await loadTags();
-        }
-
-        // 隐藏标签管理模态框
-        function hideTagManagementModal() {
-            document.getElementById('tagManagementModal').classList.remove('show');
-        }
-
-        // 加载标签列表
-        async function loadTags() {
-            try {
-                const response = await fetch('/api/tags');
-                const data = await response.json();
-                if (data.success) {
-                    allTags = data.tags;
-                    renderTagList();
-                    updateTagFilter();  // Update Filter Dropdown
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('加载标签失败'), 'error');
-            }
-        }
-
-        // 更新标签筛选下拉框
-        function updateTagFilter() {
-            const container = document.getElementById('tagFilterContainer');
-            if (!container) return;
-
-            if (allTags.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
-
-            container.style.display = 'flex';
-
-            let html = '';
-            allTags.forEach(tag => {
-                html += `
+    let html = '';
+    allTags.forEach(tag => {
+        html += `
                     <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; padding: 2px 6px; border: 1px solid #e5e5e5; border-radius: 12px; background: white; user-select: none;">
                         <input type="checkbox" class="tag-filter-checkbox" value="${tag.id}" onchange="handleTagFilterChange()" style="margin: 0;">
                         <span style="width: 8px; height: 8px; border-radius: 50%; background-color: ${tag.color}; display: inline-block;"></span>
                         ${escapeHtml(tag.name)}
                     </label>
                 `;
-            });
-            container.innerHTML = html;
-            /* Old dropdown code removed */
+    });
+    container.innerHTML = html;
+    /* Old dropdown code removed */
 
 
-        }
+}
 
-        // 渲染标签列表
-        function renderTagList() {
-            const listEl = document.getElementById('tagList');
-            if (!allTags.length) {
-                listEl.innerHTML = `<div style="text-align: center; color: #999; padding: 20px;">${translateAppTextLocal('暂无标签')}</div>`;
-                return;
-            }
+// 渲染标签列表
+function renderTagList() {
+    const listEl = document.getElementById('tagList');
+    if (!allTags.length) {
+        listEl.innerHTML = `<div style="text-align: center; color: #999; padding: 20px;">${translateAppTextLocal('暂无标签')}</div>`;
+        return;
+    }
 
-            let html = '';
-            allTags.forEach(tag => {
-                html += `
+    let html = '';
+    allTags.forEach(tag => {
+        html += `
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px solid #f0f0f0;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span class="tag-badge" style="background-color: ${tag.color};">${escapeHtml(tag.name)}</span>
@@ -3072,336 +3072,336 @@ ${details}
                         <button class="btn btn-sm btn-danger" onclick="deleteTag(${tag.id})">${translateAppTextLocal('删除')}</button>
                     </div>
                 `;
-            });
-            listEl.innerHTML = html;
+    });
+    listEl.innerHTML = html;
+}
+
+// 创建标签
+async function createTag() {
+    const nameInput = document.getElementById('newTagName');
+    const colorInput = document.getElementById('newTagColor');
+    const name = nameInput.value.trim();
+    const color = colorInput.value;
+
+    if (!name) {
+        showToast(translateAppTextLocal('请输入标签名称'), 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, color })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            nameInput.value = '';
+            showToast(translateAppTextLocal('标签创建成功'), 'success');
+            await loadTags();
+            // 刷新账号列表以重新加载标签（如果是在查看列表时添加标签，可能不需要立即刷新列表，但为了保持一致性可以刷新）
+            // 但通常添加标签不影响当前列表显示，除非是给账号打标
+        } else {
+            handleApiError(data, '创建失败');
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('创建标签失败'), 'error');
+    }
+}
 
-        // 创建标签
-        async function createTag() {
-            const nameInput = document.getElementById('newTagName');
-            const colorInput = document.getElementById('newTagColor');
-            const name = nameInput.value.trim();
-            const color = colorInput.value;
+// 删除标签
+async function deleteTag(id) {
+    if (!confirm('确定要删除这个标签吗？')) return;
 
-            if (!name) {
-                showToast(translateAppTextLocal('请输入标签名称'), 'error');
-                return;
+    try {
+        const response = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(translateAppTextLocal('标签已删除'), 'success');
+            await loadTags();
+            // 刷新账号列表以更新标签显示
+            if (currentGroupId) {
+                loadAccountsByGroup(currentGroupId, true);
             }
-
-            try {
-                const response = await fetch('/api/tags', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, color })
-                });
-                const data = await response.json();
-
-                if (data.success) {
-                    nameInput.value = '';
-                    showToast(translateAppTextLocal('标签创建成功'), 'success');
-                    await loadTags();
-                    // 刷新账号列表以重新加载标签（如果是在查看列表时添加标签，可能不需要立即刷新列表，但为了保持一致性可以刷新）
-                    // 但通常添加标签不影响当前列表显示，除非是给账号打标
-                } else {
-                    handleApiError(data, '创建失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('创建标签失败'), 'error');
-            }
+        } else {
+            handleApiError(data, '删除失败');
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('删除标签失败'), 'error');
+    }
+}
 
-        // 删除标签
-        async function deleteTag(id) {
-            if (!confirm('确定要删除这个标签吗？')) return;
+// ==================== 批量操作 ====================
 
-            try {
-                const response = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
-                const data = await response.json();
+// 全局选中的账号 ID 集合（跨分组保持）
+let selectedAccountIds = new Set();
+let batchMoveGroupContext = { scopedAccountIds: null };
 
-                if (data.success) {
-                    showToast(translateAppTextLocal('标签已删除'), 'success');
-                    await loadTags();
-                    // 刷新账号列表以更新标签显示
-                    if (currentGroupId) {
-                        loadAccountsByGroup(currentGroupId, true);
-                    }
-                } else {
-                    handleApiError(data, '删除失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('删除标签失败'), 'error');
-            }
+function getActiveAccountCheckboxes() {
+    const selector = mailboxViewMode === 'compact'
+        ? '#compactAccountList .account-select-checkbox'
+        : '#accountList .account-select-checkbox';
+    return Array.from(document.querySelectorAll(selector));
+}
+
+function handleAccountSelectionChange(accountId, checked) {
+    if (checked) {
+        selectedAccountIds.add(accountId);
+    } else {
+        selectedAccountIds.delete(accountId);
+    }
+    updateBatchActionBar();
+    updateSelectAllCheckbox();
+}
+
+// 更新批量操作栏状态
+function updateBatchActionBar() {
+    const barConfigs = [
+        { barId: 'batchActionBar', countId: 'selectedCount', active: mailboxViewMode === 'standard' },
+        { barId: 'compactBatchActionBar', countId: 'compactSelectedCount', active: mailboxViewMode === 'compact' }
+    ];
+
+    barConfigs.forEach(config => {
+        const bar = document.getElementById(config.barId);
+        const countSpan = document.getElementById(config.countId);
+        if (!bar || !countSpan) return;
+
+        if (selectedAccountIds.size > 0 && config.active) {
+            bar.style.display = 'flex';
+            countSpan.textContent = formatSelectedItemsLabel(selectedAccountIds.size);
+        } else {
+            bar.style.display = 'none';
         }
+    });
+}
 
-        // ==================== 批量操作 ====================
+window.addEventListener('ui-language-changed', () => {
+    updateTopbar(currentPage);
+    updateBatchActionBar();
+});
 
-        // 全局选中的账号 ID 集合（跨分组保持）
-        let selectedAccountIds = new Set();
-        let batchMoveGroupContext = { scopedAccountIds: null };
+// 显示批量删除确认
+function showBatchDeleteConfirm() {
+    if (selectedAccountIds.size === 0) {
+        showToast(translateAppTextLocal('请选择要删除的账号'), 'error');
+        return;
+    }
 
-        function getActiveAccountCheckboxes() {
-            const selector = mailboxViewMode === 'compact'
-                ? '#compactAccountList .account-select-checkbox'
-                : '#accountList .account-select-checkbox';
-            return Array.from(document.querySelectorAll(selector));
-        }
+    if (!confirm(`确定要删除选中的 ${selectedAccountIds.size} 个账号吗？此操作不可恢复！`)) {
+        return;
+    }
 
-        function handleAccountSelectionChange(accountId, checked) {
-            if (checked) {
-                selectedAccountIds.add(accountId);
-            } else {
-                selectedAccountIds.delete(accountId);
-            }
-            updateBatchActionBar();
-            updateSelectAllCheckbox();
-        }
+    batchDeleteAccounts();
+}
 
-        // 更新批量操作栏状态
-        function updateBatchActionBar() {
-            const barConfigs = [
-                { barId: 'batchActionBar', countId: 'selectedCount', active: mailboxViewMode === 'standard' },
-                { barId: 'compactBatchActionBar', countId: 'compactSelectedCount', active: mailboxViewMode === 'compact' }
-            ];
+// 批量删除账号
+async function batchDeleteAccounts() {
+    const accountIds = Array.from(selectedAccountIds);
 
-            barConfigs.forEach(config => {
-                const bar = document.getElementById(config.barId);
-                const countSpan = document.getElementById(config.countId);
-                if (!bar || !countSpan) return;
+    // 确保使用最新的 CSRF token
+    await initCSRFToken();
 
-                if (selectedAccountIds.size > 0 && config.active) {
-                    bar.style.display = 'flex';
-                    countSpan.textContent = formatSelectedItemsLabel(selectedAccountIds.size);
-                } else {
-                    bar.style.display = 'none';
-                }
-            });
-        }
-
-        window.addEventListener('ui-language-changed', () => {
-            updateTopbar(currentPage);
-            updateBatchActionBar();
+    try {
+        const response = await fetch('/api/accounts/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_ids: accountIds })
         });
 
-        // 显示批量删除确认
-        function showBatchDeleteConfirm() {
-            if (selectedAccountIds.size === 0) {
-                showToast(translateAppTextLocal('请选择要删除的账号'), 'error');
-                return;
+        const data = await response.json();
+        if (data.success) {
+            showToast(pickApiMessage(data, data.message, 'Accounts deleted successfully'), 'success');
+            // 清空选中状态
+            selectedAccountIds.clear();
+            // 刷新分组和邮箱列表
+            loadGroups();
+            if (currentGroupId) {
+                delete accountsCache[currentGroupId];
+                loadAccountsByGroup(currentGroupId, true);
             }
+            // 更新批量操作栏
+            updateBatchActionBar();
+        } else {
+            handleApiError(data, '删除失败');
+        }
+    } catch (error) {
+        showToast(translateAppTextLocal('删除失败'), 'error');
+    }
+}
 
-            if (!confirm(`确定要删除选中的 ${selectedAccountIds.size} 个账号吗？此操作不可恢复！`)) {
-                return;
+let batchActionType = ''; // 'add' or 'remove'
+let batchTagContext = { scopedAccountIds: null };
+
+// 显示批量打标模态框
+async function showBatchTagModal(type, options = {}) {
+    batchActionType = type;
+    batchTagContext = {
+        scopedAccountIds: Array.isArray(options.scopedAccountIds) && options.scopedAccountIds.length > 0
+            ? [...options.scopedAccountIds]
+            : null
+    };
+    document.getElementById('batchTagTitle').textContent = translateAppTextLocal(type === 'add' ? '批量添加标签' : '批量移除标签');
+    document.getElementById('batchTagModal').classList.add('show');
+
+    // 加载标签选项
+    await loadTagsForSelect();
+}
+
+function hideBatchTagModal() {
+    document.getElementById('batchTagModal').classList.remove('show');
+    batchTagContext = { scopedAccountIds: null };
+}
+
+// 加载标签到下拉框
+async function loadTagsForSelect() {
+    const select = document.getElementById('batchTagSelect');
+    select.innerHTML = `<option value="">${translateAppTextLocal('加载中...')}</option>`;
+
+    try {
+        const response = await fetch('/api/tags');
+        const data = await response.json();
+        if (data.success) {
+            let html = `<option value="">${translateAppTextLocal('请选择标签...')}</option>`;
+            data.tags.forEach(tag => {
+                html += `<option value="${tag.id}">${escapeHtml(tag.name)}</option>`;
+            });
+            select.innerHTML = html;
+        }
+    } catch (error) {
+        select.innerHTML = `<option value="">${translateAppTextLocal('加载失败')}</option>`;
+    }
+}
+
+// 确认批量打标
+async function confirmBatchTag() {
+    const tagId = document.getElementById('batchTagSelect').value;
+    if (!tagId) {
+        showToast(translateAppTextLocal('请选择标签'), 'error');
+        return;
+    }
+
+    const accountIds = batchTagContext.scopedAccountIds ? [...batchTagContext.scopedAccountIds] : Array.from(selectedAccountIds);
+
+    if (accountIds.length === 0) return;
+
+    try {
+        const hasScopedAccountIds = Boolean(batchTagContext.scopedAccountIds);
+        const response = await fetch('/api/accounts/tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                account_ids: accountIds,
+                tag_id: parseInt(tagId),
+                action: batchActionType
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(pickApiMessage(data, data.message, 'Tag update completed'), 'success');
+            hideBatchTagModal();
+            if (!hasScopedAccountIds) {
+                selectedAccountIds.clear();
             }
-
-            batchDeleteAccounts();
-        }
-
-        // 批量删除账号
-        async function batchDeleteAccounts() {
-            const accountIds = Array.from(selectedAccountIds);
-
-            // 确保使用最新的 CSRF token
-            await initCSRFToken();
-
-            try {
-                const response = await fetch('/api/accounts/batch-delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account_ids: accountIds })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(pickApiMessage(data, data.message, 'Accounts deleted successfully'), 'success');
-                    // 清空选中状态
-                    selectedAccountIds.clear();
-                    // 刷新分组和邮箱列表
-                    loadGroups();
-                    if (currentGroupId) {
-                        delete accountsCache[currentGroupId];
-                        loadAccountsByGroup(currentGroupId, true);
-                    }
-                    // 更新批量操作栏
-                    updateBatchActionBar();
-                } else {
-                    handleApiError(data, '删除失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('删除失败'), 'error');
+            // 刷新列表
+            loadGroups();
+            if (currentGroupId) {
+                delete accountsCache[currentGroupId];
+                loadAccountsByGroup(currentGroupId, true);
             }
+            updateBatchActionBar();
+        } else {
+            handleApiError(data, '操作失败');
         }
+    } catch (error) {
+        showToast(translateAppTextLocal('请求失败'), 'error');
+    }
+}
 
-        let batchActionType = ''; // 'add' or 'remove'
-        let batchTagContext = { scopedAccountIds: null };
+// ==================== 批量移动分组 ====================
 
-        // 显示批量打标模态框
-        async function showBatchTagModal(type, options = {}) {
-            batchActionType = type;
-            batchTagContext = {
-                scopedAccountIds: Array.isArray(options.scopedAccountIds) && options.scopedAccountIds.length > 0
-                    ? [...options.scopedAccountIds]
-                    : null
-            };
-            document.getElementById('batchTagTitle').textContent = translateAppTextLocal(type === 'add' ? '批量添加标签' : '批量移除标签');
-            document.getElementById('batchTagModal').classList.add('show');
+// 显示批量移动分组模态框
+async function showBatchMoveGroupModal(options = {}) {
+    batchMoveGroupContext = {
+        scopedAccountIds: Array.isArray(options.scopedAccountIds) && options.scopedAccountIds.length > 0
+            ? [...options.scopedAccountIds]
+            : null
+    };
+    document.getElementById('batchMoveGroupModal').classList.add('show');
+    await loadGroupsForBatchMove();
+}
 
-            // 加载标签选项
-            await loadTagsForSelect();
+function hideBatchMoveGroupModal() {
+    document.getElementById('batchMoveGroupModal').classList.remove('show');
+    batchMoveGroupContext = { scopedAccountIds: null };
+}
+
+// 加载分组到下拉框
+async function loadGroupsForBatchMove() {
+    const select = document.getElementById('batchMoveGroupSelect');
+    select.innerHTML = `<option value="">${translateAppTextLocal('加载中...')}</option>`;
+
+    try {
+        const response = await fetch('/api/groups');
+        const data = await response.json();
+        if (data.success) {
+            let html = `<option value="">${translateAppTextLocal('请选择分组...')}</option>`;
+            data.groups.filter(g => !g.is_system).forEach(group => {
+                html += `<option value="${group.id}">${escapeHtml(group.name)}</option>`;
+            });
+            select.innerHTML = html;
         }
+    } catch (error) {
+        select.innerHTML = `<option value="">${translateAppTextLocal('加载失败')}</option>`;
+    }
+}
 
-        function hideBatchTagModal() {
-            document.getElementById('batchTagModal').classList.remove('show');
-            batchTagContext = { scopedAccountIds: null };
-        }
+// 确认批量移动分组
+async function confirmBatchMoveGroup() {
+    const groupId = document.getElementById('batchMoveGroupSelect').value;
+    if (!groupId) {
+        showToast(translateAppTextLocal('请选择目标分组'), 'error');
+        return;
+    }
 
-        // 加载标签到下拉框
-        async function loadTagsForSelect() {
-            const select = document.getElementById('batchTagSelect');
-            select.innerHTML = `<option value="">${translateAppTextLocal('加载中...')}</option>`;
+    const accountIds = batchMoveGroupContext.scopedAccountIds
+        ? [...batchMoveGroupContext.scopedAccountIds]
+        : Array.from(selectedAccountIds);
 
-            try {
-                const response = await fetch('/api/tags');
-                const data = await response.json();
-                if (data.success) {
-                    let html = `<option value="">${translateAppTextLocal('请选择标签...')}</option>`;
-                    data.tags.forEach(tag => {
-                        html += `<option value="${tag.id}">${escapeHtml(tag.name)}</option>`;
-                    });
-                    select.innerHTML = html;
-                }
-            } catch (error) {
-                select.innerHTML = `<option value="">${translateAppTextLocal('加载失败')}</option>`;
+    if (accountIds.length === 0) return;
+
+    try {
+        const hasScopedAccountIds = Boolean(batchMoveGroupContext.scopedAccountIds);
+        const response = await fetch('/api/accounts/batch-update-group', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                account_ids: accountIds,
+                group_id: parseInt(groupId)
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(pickApiMessage(data, data.message, 'Accounts moved successfully'), 'success');
+            hideBatchMoveGroupModal();
+            if (!hasScopedAccountIds) {
+                selectedAccountIds.clear();
             }
-        }
-
-        // 确认批量打标
-        async function confirmBatchTag() {
-            const tagId = document.getElementById('batchTagSelect').value;
-            if (!tagId) {
-                showToast(translateAppTextLocal('请选择标签'), 'error');
-                return;
+            // 刷新分组列表
+            loadGroups();
+            // 刷新当前分组的邮箱列表
+            if (currentGroupId) {
+                delete accountsCache[currentGroupId];
+                loadAccountsByGroup(currentGroupId, true);
             }
-
-            const accountIds = batchTagContext.scopedAccountIds ? [...batchTagContext.scopedAccountIds] : Array.from(selectedAccountIds);
-
-            if (accountIds.length === 0) return;
-
-            try {
-                const hasScopedAccountIds = Boolean(batchTagContext.scopedAccountIds);
-                const response = await fetch('/api/accounts/tags', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        account_ids: accountIds,
-                        tag_id: parseInt(tagId),
-                        action: batchActionType
-                    })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(pickApiMessage(data, data.message, 'Tag update completed'), 'success');
-                    hideBatchTagModal();
-                    if (!hasScopedAccountIds) {
-                        selectedAccountIds.clear();
-                    }
-                    // 刷新列表
-                    loadGroups();
-                    if (currentGroupId) {
-                        delete accountsCache[currentGroupId];
-                        loadAccountsByGroup(currentGroupId, true);
-                    }
-                    updateBatchActionBar();
-                } else {
-                    handleApiError(data, '操作失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('请求失败'), 'error');
-            }
+            updateBatchActionBar();
+        } else {
+            handleApiError(data, '操作失败');
         }
-
-        // ==================== 批量移动分组 ====================
-
-        // 显示批量移动分组模态框
-        async function showBatchMoveGroupModal(options = {}) {
-            batchMoveGroupContext = {
-                scopedAccountIds: Array.isArray(options.scopedAccountIds) && options.scopedAccountIds.length > 0
-                    ? [...options.scopedAccountIds]
-                    : null
-            };
-            document.getElementById('batchMoveGroupModal').classList.add('show');
-            await loadGroupsForBatchMove();
-        }
-
-        function hideBatchMoveGroupModal() {
-            document.getElementById('batchMoveGroupModal').classList.remove('show');
-            batchMoveGroupContext = { scopedAccountIds: null };
-        }
-
-        // 加载分组到下拉框
-        async function loadGroupsForBatchMove() {
-            const select = document.getElementById('batchMoveGroupSelect');
-            select.innerHTML = `<option value="">${translateAppTextLocal('加载中...')}</option>`;
-
-            try {
-                const response = await fetch('/api/groups');
-                const data = await response.json();
-                if (data.success) {
-                    let html = `<option value="">${translateAppTextLocal('请选择分组...')}</option>`;
-                    data.groups.filter(g => !g.is_system).forEach(group => {
-                        html += `<option value="${group.id}">${escapeHtml(group.name)}</option>`;
-                    });
-                    select.innerHTML = html;
-                }
-            } catch (error) {
-                select.innerHTML = `<option value="">${translateAppTextLocal('加载失败')}</option>`;
-            }
-        }
-
-        // 确认批量移动分组
-        async function confirmBatchMoveGroup() {
-            const groupId = document.getElementById('batchMoveGroupSelect').value;
-            if (!groupId) {
-                showToast(translateAppTextLocal('请选择目标分组'), 'error');
-                return;
-            }
-
-            const accountIds = batchMoveGroupContext.scopedAccountIds
-                ? [...batchMoveGroupContext.scopedAccountIds]
-                : Array.from(selectedAccountIds);
-
-            if (accountIds.length === 0) return;
-
-            try {
-                const hasScopedAccountIds = Boolean(batchMoveGroupContext.scopedAccountIds);
-                const response = await fetch('/api/accounts/batch-update-group', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        account_ids: accountIds,
-                        group_id: parseInt(groupId)
-                    })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(pickApiMessage(data, data.message, 'Accounts moved successfully'), 'success');
-                    hideBatchMoveGroupModal();
-                    if (!hasScopedAccountIds) {
-                        selectedAccountIds.clear();
-                    }
-                    // 刷新分组列表
-                    loadGroups();
-                    // 刷新当前分组的邮箱列表
-                    if (currentGroupId) {
-                        delete accountsCache[currentGroupId];
-                        loadAccountsByGroup(currentGroupId, true);
-                    }
-                    updateBatchActionBar();
-                } else {
-                    handleApiError(data, '操作失败');
-                }
-            } catch (error) {
-                showToast(translateAppTextLocal('请求失败'), 'error');
-            }
-        }
+    } catch (error) {
+        showToast(translateAppTextLocal('请求失败'), 'error');
+    }
+}

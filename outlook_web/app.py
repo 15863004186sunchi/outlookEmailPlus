@@ -37,6 +37,7 @@ def create_app(*, autostart_scheduler: Optional[bool] = None):
             groups,
             oauth,
             pages,
+            registrar,
             scheduler,
             settings,
             system,
@@ -116,6 +117,7 @@ def create_app(*, autostart_scheduler: Optional[bool] = None):
 
         # Blueprint 路由注册（URL 不变）
         app.register_blueprint(pages.create_blueprint(csrf_exempt=csrf_exempt))
+        app.register_blueprint(registrar.create_blueprint())
         app.register_blueprint(groups.create_blueprint())
         app.register_blueprint(tags.create_blueprint())
         app.register_blueprint(accounts.create_blueprint())

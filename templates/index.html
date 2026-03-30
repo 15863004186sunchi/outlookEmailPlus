@@ -42,6 +42,9 @@
                 </button>
 
                 <div class="nav-section">系统</div>
+                <button class="nav-item" data-page="registrar" onclick="navigate('registrar')">
+                    <span class="nav-icon">🤖</span><span>自动注册</span>
+                </button>
                 <button class="nav-item" data-page="settings" onclick="navigate('settings')">
                     <span class="nav-icon">⚙️</span><span>系统设置</span>
                 </button>
@@ -58,9 +61,11 @@
                         <div class="user-chip-role">Outlook 管理</div>
                     </div>
                 </div>
-                <a href="https://github.com/ZeroPointSix/outlookEmailPlus" target="_blank" class="btn-github" title="访问 GitHub 仓库">
+                <a href="https://github.com/ZeroPointSix/outlookEmailPlus" target="_blank" class="btn-github"
+                    title="访问 GitHub 仓库">
                     <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        <path
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
                     </svg>
                     <span>GitHub</span>
                 </a>
@@ -146,8 +151,10 @@
             <div class="page page-hidden page-no-padding page-workspace" id="page-mailbox">
                 <template id="mailboxViewModeSwitcherTemplate">
                     <div id="mailboxViewModeSwitcher" class="mailbox-view-switcher mode-switch">
-                        <button class="mode-pill active" id="mailboxStandardModeBtn" onclick="switchMailboxViewMode('standard')">标准模式</button>
-                        <button class="mode-pill" id="mailboxCompactModeBtn" onclick="switchMailboxViewMode('compact')">简洁模式</button>
+                        <button class="mode-pill active" id="mailboxStandardModeBtn"
+                            onclick="switchMailboxViewMode('standard')">标准模式</button>
+                        <button class="mode-pill" id="mailboxCompactModeBtn"
+                            onclick="switchMailboxViewMode('compact')">简洁模式</button>
                     </div>
                 </template>
 
@@ -159,7 +166,8 @@
                             <button class="btn-icon" onclick="showAddGroupModal()" title="添加分组">+</button>
                         </div>
                         <div class="column-search">
-                            <input type="text" id="groupSearchInput" placeholder="搜索分组…" oninput="filterGroups(this.value)">
+                            <input type="text" id="groupSearchInput" placeholder="搜索分组…"
+                                oninput="filterGroups(this.value)">
                         </div>
                         <div class="column-body" id="groupList">
                             <div class="loading-overlay"><span class="spinner"></span> 加载中…</div>
@@ -167,17 +175,22 @@
                     </div>
 
                     <!-- Resize Handle 1 -->
-                    <div class="workspace-resizer" id="resizeHandle1" data-left="groupPanel" data-right="accountPanel" data-resize-role="groups-to-accounts"></div>
+                    <div class="workspace-resizer" id="resizeHandle1" data-left="groupPanel" data-right="accountPanel"
+                        data-resize-role="groups-to-accounts"></div>
 
                     <!-- Accounts Column -->
                     <div class="workspace-panel accounts-column" id="accountPanel">
                         <div class="column-header">
                             <span class="column-title">
-                                <span class="group-color-dot" id="currentGroupColor" style="background-color:#666;"></span>
+                                <span class="group-color-dot" id="currentGroupColor"
+                                    style="background-color:#666;"></span>
                                 <span id="currentGroupName">选择分组</span>
                             </span>
                             <div style="display:flex;gap:4px;align-items:center;">
-                                <button id="registerOutlookBtn" class="btn btn-sm" onclick="showGetRefreshTokenModal()" title="通过 OAuth 获取 Token 注册 Outlook 账号" style="display:none;background-color:#0078d4;color:#fff;font-size:0.75rem;padding:3px 8px;border:none;border-radius:4px;cursor:pointer;">🔑 注册</button>
+                                <button id="registerOutlookBtn" class="btn btn-sm" onclick="showGetRefreshTokenModal()"
+                                    title="通过 OAuth 获取 Token 注册 Outlook 账号"
+                                    style="display:none;background-color:#0078d4;color:#fff;font-size:0.75rem;padding:3px 8px;border:none;border-radius:4px;cursor:pointer;">🔑
+                                    注册</button>
                                 <button class="btn-icon" onclick="showTagManagementModal()" title="管理标签">🏷️</button>
                                 <button class="btn-icon" onclick="showAddAccountModal()" title="导入账号">+</button>
                             </div>
@@ -185,16 +198,23 @@
                         <div class="column-search">
                             <input type="text" id="globalSearch" placeholder="搜索邮箱地址…" autocomplete="off">
                         </div>
-                        <div style="padding:6px 12px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px;font-size:0.78rem;flex-shrink:0;">
+                        <div
+                            style="padding:6px 12px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px;font-size:0.78rem;flex-shrink:0;">
                             <label style="color:var(--text-muted);font-weight:500;">排序：</label>
-                            <button class="btn btn-sm sort-btn active" data-sort="refresh_time" onclick="sortAccounts('refresh_time')">🕐 刷新时间</button>
-                            <button class="btn btn-sm sort-btn" data-sort="email" onclick="sortAccounts('email')">📧 邮箱名</button>
+                            <button class="btn btn-sm sort-btn active" data-sort="refresh_time"
+                                onclick="sortAccounts('refresh_time')">🕐 刷新时间</button>
+                            <button class="btn btn-sm sort-btn" data-sort="email" onclick="sortAccounts('email')">📧
+                                邮箱名</button>
                             <div style="margin-left:auto;display:flex;align-items:center;gap:4px;">
-                                <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll()" style="cursor:pointer;">
-                                <label for="selectAllCheckbox" style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;">全选</label>
+                                <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll()"
+                                    style="cursor:pointer;">
+                                <label for="selectAllCheckbox"
+                                    style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;">全选</label>
                             </div>
                         </div>
-                        <div id="tagFilterContainer" style="padding:6px 12px;border-bottom:1px solid var(--border-light);display:none;flex-wrap:wrap;gap:6px;"></div>
+                        <div id="tagFilterContainer"
+                            style="padding:6px 12px;border-bottom:1px solid var(--border-light);display:none;flex-wrap:wrap;gap:6px;">
+                        </div>
                         <div class="column-body" id="accountList">
                             <div class="empty-state">
                                 <span class="empty-icon">📁</span>
@@ -212,15 +232,18 @@
                     </div>
 
                     <!-- Resize Handle 2 -->
-                    <div class="workspace-resizer" id="resizeHandle2" data-left="accountPanel" data-right="emailListPanel" data-resize-role="accounts-to-emails"></div>
+                    <div class="workspace-resizer" id="resizeHandle2" data-left="accountPanel"
+                        data-right="emailListPanel" data-resize-role="accounts-to-emails"></div>
 
                     <!-- Emails Column -->
                     <div class="workspace-panel emails-column" id="emailListPanel">
                         <div class="column-header">
                             <div style="display:flex;align-items:center;gap:8px;">
                                 <div class="email-tabs" id="folderTabs" style="display:none;border:none;">
-                                    <button class="email-tab active" data-folder="inbox" onclick="switchFolder('inbox')">📨 收件箱</button>
-                                    <button class="email-tab" data-folder="junkemail" onclick="switchFolder('junkemail')">⚠️ 垃圾邮件</button>
+                                    <button class="email-tab active" data-folder="inbox"
+                                        onclick="switchFolder('inbox')">📨 收件箱</button>
+                                    <button class="email-tab" data-folder="junkemail"
+                                        onclick="switchFolder('junkemail')">⚠️ 垃圾邮件</button>
                                 </div>
                                 <span style="font-size:0.82rem;color:var(--text-muted);" id="emailCount"></span>
                                 <span id="methodTag" style="display:none;" class="badge badge-gray"></span>
@@ -230,8 +253,10 @@
                             </div>
                         </div>
                         <!-- Current account info bar -->
-                        <div id="currentAccountBar" style="display:none;padding:0.5rem 1rem;background:var(--bg-card);border-bottom:1px solid var(--border-light);font-size:0.82rem;">
-                            <span id="currentAccount" onclick="copyCurrentEmail()" title="点击复制邮箱地址" style="cursor:pointer;">
+                        <div id="currentAccountBar"
+                            style="display:none;padding:0.5rem 1rem;background:var(--bg-card);border-bottom:1px solid var(--border-light);font-size:0.82rem;">
+                            <span id="currentAccount" onclick="copyCurrentEmail()" title="点击复制邮箱地址"
+                                style="cursor:pointer;">
                                 当前邮箱：<strong id="currentAccountEmail"></strong>
                             </span>
                         </div>
@@ -242,7 +267,8 @@
                             </div>
                         </div>
                         <div id="emailBatchActionBar" class="batch-action-bar" style="display:none;">
-                            <span id="emailSelectedCount" style="font-size:0.78rem;color:var(--text-muted);">已选 0 项</span>
+                            <span id="emailSelectedCount" style="font-size:0.78rem;color:var(--text-muted);">已选 0
+                                项</span>
                             <div style="flex:1;"></div>
                             <button class="btn btn-sm btn-danger" onclick="confirmBatchDeleteEmails()">🗑️ 删除</button>
                         </div>
@@ -250,13 +276,16 @@
                             <div class="email-detail-toolbar" id="emailDetailToolbar">
                                 <button class="btn btn-sm btn-ghost" onclick="showEmailList()">← 返回</button>
                                 <button class="btn btn-sm btn-ghost" onclick="openFullscreenEmail()">🔍 全屏查看</button>
-                                <button class="btn btn-sm btn-accent" onclick="extractVerificationFromDetail(this)" title="从邮件正文提取验证码/链接" style="font-size:0.72rem;padding:2px 8px;">🔑 验证码</button>
-                                <label style="display:flex;align-items:center;gap:4px;font-size:0.78rem;margin-left:8px;cursor:pointer;">
+                                <button class="btn btn-sm btn-accent" onclick="extractVerificationFromDetail(this)"
+                                    title="从邮件正文提取验证码/链接" style="font-size:0.72rem;padding:2px 8px;">🔑 验证码</button>
+                                <label
+                                    style="display:flex;align-items:center;gap:4px;font-size:0.78rem;margin-left:8px;cursor:pointer;">
                                     <input type="checkbox" id="trustEmailCheckbox" onchange="toggleTrustMode(this)">
                                     <span style="user-select:none;">信任此邮件</span>
                                 </label>
                                 <div style="flex:1;"></div>
-                                <button class="btn btn-sm btn-danger" onclick="confirmDeleteCurrentEmail()">🗑️ 删除</button>
+                                <button class="btn btn-sm btn-danger" onclick="confirmDeleteCurrentEmail()">🗑️
+                                    删除</button>
                             </div>
                             <div class="email-detail-container" id="emailDetail">
                                 <div class="empty-state">
@@ -279,9 +308,13 @@
                                 <details class="action-menu">
                                     <summary class="btn-inline ghost" aria-label="账号操作" title="账号操作">账号操作</summary>
                                     <div class="menu-panel">
-                                        <button class="menu-item" onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showAddAccountModal()">添加账号</button>
-                                        <button class="menu-item" onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showExportModal()">导出账号</button>
-                                        <button class="menu-item" onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showRefreshModal()">全量刷新 Token</button>
+                                        <button class="menu-item"
+                                            onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showAddAccountModal()">添加账号</button>
+                                        <button class="menu-item"
+                                            onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showExportModal()">导出账号</button>
+                                        <button class="menu-item"
+                                            onclick="event.preventDefault(); event.stopPropagation(); closeCompactMenu(this); showRefreshModal()">全量刷新
+                                            Token</button>
                                     </div>
                                 </details>
                             </div>
@@ -336,9 +369,12 @@
                     <!-- Temp Email Messages Column -->
                     <div class="workspace-panel emails-column" id="tempEmailMessagePanel">
                         <div class="column-header">
-                            <span class="column-title" id="tempEmailCurrentName" onclick="copyTempEmailCurrent()" title="点击复制邮箱地址" style="cursor:pointer;">选择一个临时邮箱</span>
+                            <span class="column-title" id="tempEmailCurrentName" onclick="copyTempEmailCurrent()"
+                                title="点击复制邮箱地址" style="cursor:pointer;">选择一个临时邮箱</span>
                             <div style="display:flex;gap:4px;">
-                                <button class="btn btn-sm btn-ghost" id="tempEmailRefreshBtn" onclick="if(currentAccount && isTempEmailGroup) loadTempEmailMessages(currentAccount)" style="display:none;">🔄 获取邮件</button>
+                                <button class="btn btn-sm btn-ghost" id="tempEmailRefreshBtn"
+                                    onclick="if(currentAccount && isTempEmailGroup) loadTempEmailMessages(currentAccount)"
+                                    style="display:none;">🔄 获取邮件</button>
                             </div>
                         </div>
                         <div class="column-body" id="tempEmailMessageList">
@@ -363,6 +399,62 @@
                 </div>
             </div>
 
+            <!-- ===== Page: Registrar Control ===== -->
+            <div class="page page-hidden" id="page-registrar" style="padding: 1.5rem; max-width: 720px;">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">🤖 自动注册控制</div>
+                    </div>
+                    <div class="card-body" style="padding: 1.5rem;">
+                        <div class="registrar-status-banner" id="registrarStatusBanner"
+                            style="padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--bg-secondary); border: 1px solid var(--border-light); display: flex; align-items: center; gap: 1rem;">
+                            <div class="status-indicator" id="registrarStatusDot"
+                                style="width: 12px; height: 12px; border-radius: 50%; background: #ccc;"></div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; font-size: 1rem;" id="registrarStatusText">正在检测状态...</div>
+                                <div style="font-size: 0.82rem; color: var(--text-muted);" id="registrarStatusSub">
+                                    无法连接到注册机</div>
+                            </div>
+                        </div>
+
+                        <div class="stat-grid"
+                            style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                            <div class="stat-card">
+                                <div class="stat-label">已成功</div>
+                                <div class="stat-value" id="registrarStatSucceeded">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">已失败</div>
+                                <div class="stat-value" id="registrarStatFailed">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">当前进度</div>
+                                <div class="stat-value" id="registrarStatProgress">0/0</div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">并发任务数</label>
+                            <input type="number" class="form-input" id="registrarConcurrent" min="1" max="20" value="5">
+                            <div class="form-hint">建议根据代理数量和机器性能设置 (1-20)</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">本次注册总数</label>
+                            <input type="number" class="form-input" id="registrarMaxTasks" min="1" max="1000"
+                                value="10">
+                        </div>
+
+                        <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                            <button id="btnStartRegistrar" class="btn btn-primary" style="flex: 1; padding: 0.8rem;"
+                                onclick="startRegistrar()">🚀 开始注册</button>
+                            <button id="btnStopRegistrar" class="btn btn-danger"
+                                style="flex: 1; padding: 0.8rem; display: none;" onclick="stopRegistrar()">⏹
+                                停止注册</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- ===== Page: Settings ===== -->
             <div class="page page-hidden" id="page-settings" style="padding: 1.5rem; max-width: 720px;">
                 <div class="card">
@@ -376,14 +468,16 @@
                             <input type="password" class="form-input" id="settingsPassword" placeholder="输入新密码（留空则不修改）">
                             <div class="form-hint">用于登录系统的密码</div>
                         </div>
-                         <div class="form-group">
-                             <label class="form-label">GPTMail API Key</label>
-                             <input type="text" class="form-input" id="settingsApiKey" placeholder="输入 GPTMail API Key">
-                             <div class="form-hint">用于临时邮箱功能，可从 <a href="https://mail.chatgpt.org.uk/api" target="_blank" style="color: var(--clr-primary);">gptmail.io</a> 获取</div>
-                         </div>
+                        <div class="form-group">
+                            <label class="form-label">GPTMail API Key</label>
+                            <input type="text" class="form-input" id="settingsApiKey" placeholder="输入 GPTMail API Key">
+                            <div class="form-hint">用于临时邮箱功能，可从 <a href="https://mail.chatgpt.org.uk/api" target="_blank"
+                                    style="color: var(--clr-primary);">gptmail.io</a> 获取</div>
+                        </div>
                         <div class="form-group">
                             <label class="form-label">对外开放 API Key</label>
-                            <input type="password" class="form-input" id="settingsExternalApiKey" placeholder="用于 /api/external/* 的 X-API-Key" autocomplete="off">
+                            <input type="password" class="form-input" id="settingsExternalApiKey"
+                                placeholder="用于 /api/external/* 的 X-API-Key" autocomplete="off">
                             <div class="form-hint" id="externalApiKeyHint">
                                 用于对外开放接口鉴权（请求头：X-API-Key）。如需禁用对外开放接口，可清空后保存。
                             </div>
@@ -404,8 +498,11 @@
                         </div>
 
                         <!-- P1：对外 API 公网安全配置 -->
-                        <div id="externalApiAdvancedSettings" style="margin-top: 0.75rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-light);">
-                            <h5 style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text-muted);">🛡️ 公网安全配置（P1）</h5>
+                        <div id="externalApiAdvancedSettings"
+                            style="margin-top: 0.75rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-light);">
+                            <h5
+                                style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text-muted);">
+                                🛡️ 公网安全配置（P1）</h5>
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                     <input type="checkbox" id="externalApiPublicMode">
@@ -414,13 +511,18 @@
                                 <div class="form-hint">关闭时（默认）仅做 API Key 鉴权；开启后额外启用 IP 白名单、限流、高风险端点禁用等安全策略。</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">IP 白名单 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（仅公网模式生效，留空则不限制）</span></label>
-                                <textarea class="form-input" id="externalApiIpWhitelist" rows="2" placeholder='每行一个 IP 或 CIDR，如 192.168.1.0/24' style="font-family: monospace; font-size: 0.85rem;"></textarea>
+                                <label class="form-label">IP 白名单 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（仅公网模式生效，留空则不限制）</span></label>
+                                <textarea class="form-input" id="externalApiIpWhitelist" rows="2"
+                                    placeholder='每行一个 IP 或 CIDR，如 192.168.1.0/24'
+                                    style="font-family: monospace; font-size: 0.85rem;"></textarea>
                                 <div class="form-hint">支持精确 IP 和 CIDR 格式。每行一个，保存时自动转为 JSON 数组。</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">每分钟每 IP 限流 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（仅公网模式生效）</span></label>
-                                <input type="number" class="form-input" id="externalApiRateLimit" min="1" max="10000" value="60" style="width: 120px;">
+                                <label class="form-label">每分钟每 IP 限流 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（仅公网模式生效）</span></label>
+                                <input type="number" class="form-input" id="externalApiRateLimit" min="1" max="10000"
+                                    value="60" style="width: 120px;">
                                 <div class="form-hint">每个 IP 每分钟最大请求数（默认 60）。</div>
                             </div>
                             <div class="form-group">
@@ -437,14 +539,18 @@
                                 </label>
                                 <div class="form-hint">公网模式下建议禁用，防止长连接资源耗尽（Slowloris 风险）。</div>
                             </div>
-                            <div style="border-top: 1px solid var(--border-light); margin-top: 1rem; padding-top: 1rem;">
-                                <h6 style="font-size: 0.82rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text-muted);">📦 External Pool</h6>
+                            <div
+                                style="border-top: 1px solid var(--border-light); margin-top: 1rem; padding-top: 1rem;">
+                                <h6
+                                    style="font-size: 0.82rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text-muted);">
+                                    📦 External Pool</h6>
                                 <div class="form-group">
                                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                         <input type="checkbox" id="poolExternalEnabled">
                                         <span class="form-label" style="margin: 0;">启用 external pool 端点</span>
                                     </label>
-                                    <div class="form-hint">开启后才允许调用 `/api/external/pool/*`。仅设置对外 API Key 不会自动开启邮箱池对外接口。</div>
+                                    <div class="form-hint">开启后才允许调用 `/api/external/pool/*`。仅设置对外 API Key 不会自动开启邮箱池对外接口。
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -479,7 +585,8 @@
 
                         <!-- Token 刷新设置 -->
                         <div style="border-top: 1px solid var(--border-light); margin: 1.5rem 0; padding-top: 1.5rem;">
-                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">🔄 Token 刷新设置</h4>
+                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">
+                                🔄 Token 刷新设置</h4>
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                     <input type="checkbox" id="enableScheduledRefresh" checked>
@@ -491,21 +598,27 @@
                                 <label class="form-label">刷新策略</label>
                                 <div style="display: flex; gap: 16px; margin-bottom: 12px;">
                                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="radio" name="refreshStrategy" value="days" checked onchange="toggleRefreshStrategy()">
+                                        <input type="radio" name="refreshStrategy" value="days" checked
+                                            onchange="toggleRefreshStrategy()">
                                         <span>按天数</span>
                                     </label>
                                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="radio" name="refreshStrategy" value="cron" onchange="toggleRefreshStrategy()">
+                                        <input type="radio" name="refreshStrategy" value="cron"
+                                            onchange="toggleRefreshStrategy()">
                                         <span>Cron 表达式</span>
                                     </label>
                                 </div>
                             </div>
                             <div id="daysStrategyContainer">
                                 <div class="form-group">
-                                    <label class="form-label">定时刷新周期 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（每隔 X 天自动刷新所有账号）</span></label>
+                                    <label class="form-label">定时刷新周期 <span
+                                            style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（每隔
+                                            X 天自动刷新所有账号）</span></label>
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        <input type="number" class="form-input" id="refreshIntervalDays" min="1" max="90" value="30" placeholder="30" style="max-width: 120px;">
-                                        <span style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">天</span>
+                                        <input type="number" class="form-input" id="refreshIntervalDays" min="1"
+                                            max="90" value="30" placeholder="30" style="max-width: 120px;">
+                                        <span
+                                            style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">天</span>
                                     </div>
                                     <div class="form-hint">建议设置为 30 天，防止 Token 因 90 天不使用而过期</div>
                                 </div>
@@ -513,17 +626,24 @@
                             <div id="cronStrategyContainer" style="display: none;">
                                 <div class="form-group">
                                     <label class="form-label">Cron 表达式</label>
-                                    <input type="text" class="form-input" id="refreshCron" placeholder="0 2 * * *" value="0 2 * * *">
+                                    <input type="text" class="form-input" id="refreshCron" placeholder="0 2 * * *"
+                                        value="0 2 * * *">
                                     <div class="form-hint">格式：分 时 日 月 星期（例如：0 2 * * * 表示每天凌晨 2:00）</div>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">常用样例</label>
-                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
-                                        <button class="btn btn-sm btn-secondary" onclick="selectCronExample('0 2 * * *')">每天凌晨 2:00</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="selectCronExample('0 2 * * 1')">每周一凌晨 2:00</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="selectCronExample('0 2 1 * *')">每月 1 号凌晨 2:00</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="selectCronExample('0 2 */3 * *')">每 3 天凌晨 2:00</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="selectCronExample('0 */12 * * *')">每 12 小时</button>
+                                    <div
+                                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
+                                        <button class="btn btn-sm btn-secondary"
+                                            onclick="selectCronExample('0 2 * * *')">每天凌晨 2:00</button>
+                                        <button class="btn btn-sm btn-secondary"
+                                            onclick="selectCronExample('0 2 * * 1')">每周一凌晨 2:00</button>
+                                        <button class="btn btn-sm btn-secondary"
+                                            onclick="selectCronExample('0 2 1 * *')">每月 1 号凌晨 2:00</button>
+                                        <button class="btn btn-sm btn-secondary"
+                                            onclick="selectCronExample('0 2 */3 * *')">每 3 天凌晨 2:00</button>
+                                        <button class="btn btn-sm btn-secondary"
+                                            onclick="selectCronExample('0 */12 * * *')">每 12 小时</button>
                                     </div>
                                 </div>
                                 <div class="form-group">
@@ -532,10 +652,13 @@
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">邮箱间刷新间隔 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（每个邮箱刷新之间的等待时间）</span></label>
+                                <label class="form-label">邮箱间刷新间隔 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（每个邮箱刷新之间的等待时间）</span></label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="number" class="form-input" id="refreshDelaySeconds" min="0" max="60" value="5" placeholder="5" style="max-width: 120px;">
-                                    <span style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
+                                    <input type="number" class="form-input" id="refreshDelaySeconds" min="0" max="60"
+                                        value="5" placeholder="5" style="max-width: 120px;">
+                                    <span
+                                        style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
                                 </div>
                                 <div class="form-hint">建议设置为 5-10 秒，避免频繁请求触发 API 限流</div>
                             </div>
@@ -543,7 +666,8 @@
 
                         <!-- 自动轮询设置 -->
                         <div style="border-top: 1px solid var(--border-light); margin: 1.5rem 0; padding-top: 1.5rem;">
-                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">🔔 自动轮询设置</h4>
+                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">
+                                🔔 自动轮询设置</h4>
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                     <input type="checkbox" id="enableAutoPolling">
@@ -552,18 +676,24 @@
                                 <div class="form-hint">开启后自动检查当前账号是否有新邮件</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">轮询间隔 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（检查新邮件的时间间隔）</span></label>
+                                <label class="form-label">轮询间隔 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（检查新邮件的时间间隔）</span></label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="number" class="form-input" id="pollingInterval" min="5" max="300" value="10" placeholder="10" style="max-width: 120px;">
-                                    <span style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
+                                    <input type="number" class="form-input" id="pollingInterval" min="5" max="300"
+                                        value="10" placeholder="10" style="max-width: 120px;">
+                                    <span
+                                        style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
                                 </div>
                                 <div class="form-hint">范围：5-300 秒，建议设置为 10-30 秒</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">轮询次数 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（最多轮询多少次后停止）</span></label>
+                                <label class="form-label">轮询次数 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（最多轮询多少次后停止）</span></label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="number" class="form-input" id="pollingCount" min="0" max="100" value="5" placeholder="5" style="max-width: 120px;">
-                                    <span style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">次</span>
+                                    <input type="number" class="form-input" id="pollingCount" min="0" max="100"
+                                        value="5" placeholder="5" style="max-width: 120px;">
+                                    <span
+                                        style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">次</span>
                                 </div>
                                 <div class="form-hint">范围：0-100 次，设置为 0 表示持续轮询</div>
                             </div>
@@ -571,57 +701,69 @@
 
                         <!-- 邮件通知设置 -->
                         <div style="border-top: 1px solid var(--border-light); margin: 1.5rem 0; padding-top: 1.5rem;">
-                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">✉️ Email 通知</h4>
+                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">
+                                ✉️ Email 通知</h4>
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                     <input type="checkbox" id="emailNotificationEnabled">
                                     <span class="form-label" style="margin: 0;">启用 Email 通知</span>
                                 </label>
-                                <div class="form-hint">这里只配置 Email 通知通道。普通邮箱需在账号列表开启通知后才会通过 Email 发送；临时邮箱按当前通知规则处理。启用后仅从新到达的邮件开始通知。</div>
+                                <div class="form-hint">这里只配置 Email 通知通道。普通邮箱需在账号列表开启通知后才会通过 Email
+                                    发送；临时邮箱按当前通知规则处理。启用后仅从新到达的邮件开始通知。</div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">接收通知邮箱</label>
-                                <input type="email" class="form-input" id="emailNotificationRecipient" placeholder="输入接收通知的邮箱地址">
+                                <input type="email" class="form-input" id="emailNotificationRecipient"
+                                    placeholder="输入接收通知的邮箱地址">
                                 <div class="form-hint">这里只配置 Email 渠道的接收邮箱，不会让所有普通邮箱自动发送。</div>
                             </div>
                             <div class="form-group" style="margin-top: 0.5rem;">
-                                <button class="btn btn-outline" onclick="testEmailNotification()" id="btnTestEmailNotification" style="font-size: 0.85rem;">📨 发送测试邮件</button>
+                                <button class="btn btn-outline" onclick="testEmailNotification()"
+                                    id="btnTestEmailNotification" style="font-size: 0.85rem;">📨 发送测试邮件</button>
                                 <div class="form-hint">按“先保存，再测试”处理；成功语义为“请求已提交，请检查收件箱”。</div>
                             </div>
                         </div>
 
                         <!-- Telegram 推送设置 -->
                         <div style="border-top: 1px solid var(--border-light); margin: 1.5rem 0; padding-top: 1.5rem;">
-                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">📬 Telegram 通知</h4>
+                            <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: var(--text);">
+                                📬 Telegram 通知</h4>
                             <div class="form-group">
-                                <label class="form-label">Bot Token <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（从 @BotFather 获取）</span></label>
-                                <input type="password" class="form-input" id="telegramBotToken" placeholder="输入 Bot Token" autocomplete="off">
-                                <div class="form-hint">这里只配置 Telegram 通知通道。普通邮箱需在账号列表开启通知后才会通过 Telegram 发送；临时邮箱按当前通知规则处理。</div>
+                                <label class="form-label">Bot Token <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（从
+                                        @BotFather 获取）</span></label>
+                                <input type="password" class="form-input" id="telegramBotToken"
+                                    placeholder="输入 Bot Token" autocomplete="off">
+                                <div class="form-hint">这里只配置 Telegram 通知通道。普通邮箱需在账号列表开启通知后才会通过 Telegram
+                                    发送；临时邮箱按当前通知规则处理。</div>
                                 <div class="form-hint">格式：1234567890:AAxxxxxx（留空则禁用推送）</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Chat ID <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（接收推送的用户/群组 ID）</span></label>
-                                <input type="text" class="form-input" id="telegramChatId" placeholder="输入 Chat ID" style="max-width: 300px;">
+                                <label class="form-label">Chat ID <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（接收推送的用户/群组
+                                        ID）</span></label>
+                                <input type="text" class="form-input" id="telegramChatId" placeholder="输入 Chat ID"
+                                    style="max-width: 300px;">
                                 <div class="form-hint">可用 @userinfobot 获取你的 Chat ID</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">轮询间隔 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（检查新邮件的时间间隔）</span></label>
+                                <label class="form-label">轮询间隔 <span
+                                        style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">（检查新邮件的时间间隔）</span></label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="number" class="form-input" id="telegramPollInterval" min="10" max="86400" value="600" placeholder="600" style="max-width: 120px;">
-                                    <span style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
+                                    <input type="number" class="form-input" id="telegramPollInterval" min="10"
+                                        max="86400" value="600" placeholder="600" style="max-width: 120px;">
+                                    <span
+                                        style="font-size: 0.88rem; color: var(--text-muted); font-weight: 500;">秒</span>
                                 </div>
                                 <div class="form-hint">范围：10-86400 秒，默认 600 秒（10 分钟）</div>
                             </div>
                             <div class="form-group" style="margin-top: 0.5rem;">
-                                <button class="btn btn-outline" onclick="testTelegramPush()" id="btnTestTelegram" style="font-size: 0.85rem;">📨 发送测试消息</button>
+                                <button class="btn btn-outline" onclick="testTelegramPush()" id="btnTestTelegram"
+                                    style="font-size: 0.85rem;">📨 发送测试消息</button>
                                 <div class="form-hint">验证当前 Telegram 通知通道是否配置正确</div>
                             </div>
                         </div>
-
-                        <!-- 保存按钮 -->
-                        <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
-                            <button class="btn btn-primary" onclick="saveSettings()">💾 保存设置</button>
-                        </div>
+                        <div class="loading-overlay"><span class="spinner"></span> 加载中…</div>
                     </div>
                 </div>
             </div>
